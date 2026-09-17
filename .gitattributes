@@ -1,0 +1,9 @@
+# 统一行尾为 LF。
+# 为什么需要：本机是 Windows（git 可能做 CRLF 转换），而 CI 跑在 Linux 上。
+# 不加这一条，工作流的 YAML 与脚本可能带着 CRLF 进入 runner，
+# 在 shell heredoc / sed 这类对行尾敏感的地方会出现很难排查的怪问题。
+* text=auto eol=lf
+
+# 生成物：内容由脚本产出，不参与行尾转换的差异比较
+src/data/airports.js   linguist-generated=true
+src/data/shapes/*.js   linguist-generated=true

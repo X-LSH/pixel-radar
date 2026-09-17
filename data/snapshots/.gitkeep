@@ -1,0 +1,7 @@
+# 本地采集的快照会写入本目录（已被 .gitignore 忽略）。
+#
+# 线上数据不在这里：由 .github/workflows/collect.yml 每 5 分钟
+# 采集并推送到独立的 data 分支，前端通过 raw.githubusercontent.com 直读。
+#
+# 本地跑 `node scripts/collect.mjs` 即可在此生成同样的快照文件，
+# 便于在无网络的线上环境之外调试真实数据通路。

@@ -1,0 +1,21 @@
+{
+  "name": "pixel-radar",
+  "version": "0.1.0",
+  "private": true,
+  "description": "一块老式像素雷达屏，显示选定机场周边空域的实时 ADS-B 目标",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node scripts/serve.mjs",
+    "collect": "node scripts/collect.mjs",
+    "watch": "node scripts/collect.mjs --watch",
+    "build:data": "node scripts/build-data.mjs",
+    "build:shapes": "node scripts/build-data.mjs --only-shapes",
+    "check": "node --check src/main.js && node scripts/verify.mjs"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

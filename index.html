@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Pixel Radar · 像素航班雷达</title>
+<meta name="description" content="一块老式像素雷达屏，实时显示选定机场周边空域的飞机起降、巡航与盘旋。数据来自公开 ADS-B 聚合源。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230a0f0a'/%3E%3Ccircle cx='8' cy='8' r='6' fill='none' stroke='%231a3a1a'/%3E%3Ccircle cx='8' cy='8' r='3' fill='none' stroke='%231a3a1a'/%3E%3Cpath d='M8 8 L13.2 4.5 A6 6 0 0 1 13.4 8.6 Z' fill='%237fff7f' opacity='.35'/%3E%3Cpath d='M8 8 L13.4 8.6' stroke='%237fff7f'/%3E%3Crect x='10' y='3' width='2' height='2' fill='%23ffff7f'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="src/styles.css">
+</head>
+<body>
+
+<div id="app" class="app" data-state="boot">
+
+  <!-- ═══════════ 顶栏 ═══════════ -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand__mark" aria-hidden="true"></span>
+      <span class="brand__name">Pixel&nbsp;Radar</span>
+      <span class="brand__sub">像素航班雷达</span>
+    </div>
+
+    <button id="airportBtn" class="airport-btn" type="button" aria-haspopup="dialog" aria-expanded="false">
+      <span class="airport-btn__icao" id="airportIcao">ZBAA</span>
+      <span class="airport-btn__sep" aria-hidden="true">/</span>
+      <span class="airport-btn__iata" id="airportIata">PEK</span>
+      <span class="airport-btn__name" id="airportName">北京首都</span>
+      <span class="airport-btn__caret" aria-hidden="true">▾</span>
+    </button>
+
+    <div class="topbar__gap"></div>
+
+    <div class="chip chip--feed" id="feedChip" title="当前数据来源">
+      <span class="chip__dot" aria-hidden="true"></span>
+      <span class="chip__text" id="feedLabel">正在接入</span>
+    </div>
+
+    <div class="topbar__actions">
+      <button id="pauseBtn" class="icon-btn" type="button" title="暂停 / 继续（空格）" aria-label="暂停">❚❚</button>
+      <button id="resetBtn" class="icon-btn" type="button" title="重置视角（R）" aria-label="重置视角">⌖</button>
+      <button id="shareBtn" class="icon-btn" type="button" title="导出当前画面 PNG（S）" aria-label="截图">▣</button>
+      <button id="fullBtn" class="icon-btn" type="button" title="全屏（F）" aria-label="全屏">⛶</button>
+      <button id="setBtn" class="icon-btn" type="button" title="显示设置" aria-label="显示设置" aria-expanded="true">⚙</button>
+    </div>
+  </header>
+
+  <!-- ═══════════ 雷达屏 ═══════════ -->
+  <main class="viewport" id="viewport">
+    <div class="screenbox" id="screenBox">
+      <canvas id="screen" class="screen" aria-label="雷达屏"></canvas>
+      <div class="glass" id="glass" aria-hidden="true"></div>
+    </div>
+
+    <div class="boot" id="boot" aria-live="polite">
+      <div class="boot__inner">
+        <div class="boot__title">RADAR STARTUP</div>
+        <div class="boot__log" id="bootLog">正在初始化扫描阵列…</div>
+        <div class="boot__bar"><i id="bootBar"></i></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ═══════════ 侧栏 ═══════════ -->
+  <aside class="panel" id="panel" aria-label="控制面板">
+
+    <!-- 空域统计 -->
+    <section class="block">
+      <h2 class="block__title">空域态势</h2>
+      <div class="stats" id="stats">
+        <div class="stat"><span class="stat__k">目标</span><span class="stat__v" id="stCount">0</span></div>
+        <div class="stat"><span class="stat__k">空中</span><span class="stat__v" id="stAir">0</span></div>
+        <div class="stat"><span class="stat__k">地面</span><span class="stat__v" id="stGround">0</span></div>
+        <div class="stat"><span class="stat__k">最高</span><span class="stat__v" id="stTop">—</span></div>
+        <div class="stat"><span class="stat__k">最快</span><span class="stat__v" id="stFast">—</span></div>
+        <div class="stat"><span class="stat__k">最忙航向</span><span class="stat__v" id="stHdg">—</span></div>
+      </div>
+    </section>
+
+    <!-- 目标信息卡 -->
+    <section class="block block--card">
+      <h2 class="block__title">
+        目标信息
+        <button id="unfollowBtn" class="block__act" type="button" hidden>取消跟随</button>
+      </h2>
+
+      <div class="card card--empty" id="cardEmpty">
+        <p class="card__hint">点击屏内任一目标查看详情</p>
+        <p class="card__hint card__hint--dim">双击锁定跟随 · Esc 取消选中</p>
+      </div>
+
+      <div class="card" id="cardBody" hidden>
+        <div class="card__head">
+          <span class="card__callsign" id="cCallsign">—</span>
+          <span class="card__badge" id="cPhase">—</span>
+        </div>
+        <div class="card__airline" id="cAirline"></div>
+        <dl class="kv" id="cFields"></dl>
+        <div class="card__bar" id="cBar"><i id="cBarFill"></i></div>
+        <div class="card__foot">
+          <span id="cSource">—</span>
+          <span id="cAge">—</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- 显示设置 -->
+    <section class="block" id="setBlock">
+      <h2 class="block__title">显示设置</h2>
+
+      <div class="field">
+        <label class="field__label">距离环</label>
+        <div class="seg" id="ringSeg" role="group" aria-label="距离环">
+          <button type="button" data-ring="5">5km</button>
+          <button type="button" data-ring="10">10km</button>
+          <button type="button" data-ring="20">20km</button>
+          <button type="button" data-ring="50">50km</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="field__label">缩放</label>
+        <div class="seg seg--pair" id="zoomSeg" role="group" aria-label="缩放">
+          <button type="button" data-zoom="-1" aria-label="缩小">−</button>
+          <span class="seg__read" id="zoomRead">1.0×</span>
+          <button type="button" data-zoom="1" aria-label="放大">+</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="field__label">像素粒度</label>
+        <div class="seg" id="scaleSeg" role="group" aria-label="像素粒度">
+          <button type="button" data-scale="0">自动</button>
+          <button type="button" data-scale="3">3×</button>
+          <button type="button" data-scale="4">4×</button>
+          <button type="button" data-scale="5">5×</button>
+        </div>
+        <p class="field__note" id="resNote">逻辑分辨率 —</p>
+      </div>
+
+      <div class="toggles" id="toggles">
+        <label class="tg"><input type="checkbox" data-tg="sweepOn" checked><i></i><span>雷达扫描</span></label>
+        <label class="tg"><input type="checkbox" data-tg="trailsOn" checked><i></i><span>尾迹</span></label>
+        <label class="tg"><input type="checkbox" data-tg="labelsOn" checked><i></i><span>目标标签</span></label>
+        <label class="tg"><input type="checkbox" data-tg="crt" checked><i></i><span>CRT 效果</span></label>
+        <label class="tg"><input type="checkbox" data-tg="scanlines" checked><i></i><span>扫描线</span></label>
+        <label class="tg"><input type="checkbox" data-tg="vignette" checked><i></i><span>暗角</span></label>
+        <label class="tg"><input type="checkbox" data-tg="noise" checked><i></i><span>噪点</span></label>
+      </div>
+    </section>
+
+    <!-- 数据源 -->
+    <section class="block">
+      <h2 class="block__title">数据源</h2>
+      <ol class="chain" id="chain">
+        <li data-src="relay"><i></i><b>自备中继</b><em>待配置</em></li>
+        <li data-src="snapshot"><i></i><b>静态快照</b><em>待探测</em></li>
+        <li data-src="direct"><i></i><b>直接聚合源</b><em>浏览器受限</em></li>
+        <li data-src="simulation"><i></i><b>模拟数据</b><em>兜底</em></li>
+      </ol>
+
+      <details class="adv">
+        <summary>自定义中继地址</summary>
+        <p class="field__note">
+          上游 ADS-B 聚合源不发送 CORS 响应头，浏览器无法直连。
+          填入一个你自建的转发地址（如 Cloudflare Worker）即可恢复实时数据。
+        </p>
+        <div class="row">
+          <input id="relayInput" class="input" type="url" placeholder="https://your-worker.example.workers.dev" spellcheck="false" autocomplete="off">
+          <button id="relaySave" class="btn" type="button">保存</button>
+        </div>
+        <p class="field__note" id="relayNote"></p>
+      </details>
+    </section>
+
+    <section class="block block--legal">
+      <p>
+        位置数据来自公开 ADS-B 聚合网络（adsb.lol 等，ODbL 许可），
+        机场与跑道数据来自 OurAirports（公共领域），海岸线来自 Natural Earth。
+      </p>
+      <p class="field__note">
+        数据存在延迟，<b>不得用于飞行安全、导航或商业决策</b>。
+        本站不抓取、不存储、不转售航班数据，也不展示敏感军事设施的实时细节。
+      </p>
+    </section>
+  </aside>
+
+  <!-- ═══════════ 状态栏 ═══════════ -->
+  <footer class="statusbar">
+    <span id="sbSource" class="sb__item">源 —</span>
+    <span id="sbAge" class="sb__item">更新 —</span>
+    <span id="sbCount" class="sb__item">目标 0</span>
+    <span class="statusbar__gap"></span>
+    <span id="sbView" class="sb__item">—</span>
+    <span id="sbRes" class="sb__item">—</span>
+    <span id="sbFps" class="sb__item">— fps</span>
+    <span class="sb__item sb__item--warn" id="sbMode" hidden></span>
+  </footer>
+
+</div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

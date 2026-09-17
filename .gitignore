@@ -1,0 +1,17 @@
+# 构建产物与本地生成物不入库
+node_modules/
+*.log
+
+# 本地采集的快照（线上由 GitHub Actions 写入 data 分支）
+data/snapshots/*.json
+!data/snapshots/.gitkeep
+
+# 验证截图与报告
+shots/
+.tmp/
+
+# 编辑器
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

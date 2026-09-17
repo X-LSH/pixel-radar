@@ -1,0 +1,119 @@
+name: 采集 ADS-B 快照
+
+# 为什么不直接让浏览器连上游：
+#   上游聚合源（adsb.lol / airplanes.live）不发送 Access-Control-Allow-Origin，
+#   浏览器无法跨域读取。GitHub Actions 的 runner 是服务端环境，
+#   没有同源策略限制，因此由它代取、落成静态 JSON，前端再读取 —— 这样才保住「零后端」。
+#
+# 产物写入独立的 data 分支，而不是 main：
+#   本仓库的 Pages 是 legacy 模式（源 = main /），main 上每次推送都会触发一次构建。
+#   而快照每 5 分钟更新一次，一天 288 次会把 legacy 构建配额（10 次/小时）顶穿。
+#   data 分支不参与 Pages，前端用 raw.githubusercontent.com 直读
+#   （该域名带 ACAO: * 且缓存 5 分钟，与采集节奏天然吻合）。
+
+on:
+  schedule:
+    # GitHub 的最小调度粒度就是 5 分钟；实际常有 1–10 分钟延迟，属正常现象
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      radius:
+        description: '查询半径（海里）'
+        required: false
+        default: '50'
+
+permissions:
+  contents: write
+
+# 避免上一轮没跑完就叠加下一轮（上游建议 1 req/s，叠加请求会触发限流）
+concurrency:
+  group: collect-snapshots
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 准备 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 采集快照
+        # 间隔放宽到 2.5 秒：adsb.lol 轻度过载时不报错、只静默返回空数组，
+        # 采集端宁可慢一点，也不要把「假空域」写进产物。
+        run: |
+          node scripts/collect.mjs \
+            --out=.staging \
+            --radius=${{ inputs.radius || '50' }} \
+            --interval=2500
+
+      - name: 发布到 data 分支
+        run: |
+          set -euo pipefail
+
+          # ⚠ 必须先把产物挪到工作区之外：下面的清理会删掉仓库里的一切，
+          #   若先清理再复制，就会得到一个空的 data 分支（而流程仍然显示成功）。
+          mkdir -p "$RUNNER_TEMP/snapshots"
+          cp .staging/*.json "$RUNNER_TEMP/snapshots/"
+
+          test -n "$(ls -A "$RUNNER_TEMP/snapshots")" || { echo "采集产物为空，中止发布"; exit 1; }
+
+          git config user.name  "pixel-radar-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # 用孤儿分支 + 强制推送，让 data 分支永远只有一个提交。
+          # 否则每 5 分钟一次提交，一个月就是 8640 个提交，仓库会被撑爆。
+          git checkout --orphan data-publish
+          git rm -rf . --quiet || true
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
+
+          mkdir -p data/snapshots
+          cp "$RUNNER_TEMP/snapshots/"*.json data/snapshots/
+
+          cat > data/README.md <<'EOF'
+          # data 分支
+
+          本分支由 `.github/workflows/collect.yml` 自动维护，**请勿手工提交**。
+
+          `snapshots/<ICAO>.json` 是各预设机场周边空域的最新 ADS-B 快照，
+          由 GitHub Actions 每 5 分钟重新采集一次覆盖更新。
+
+          前端通过 `raw.githubusercontent.com` 直读本分支：该域名带
+          `Access-Control-Allow-Origin: *`，且 CDN 缓存 5 分钟。
+
+          数据来源：adsb.lol（ODbL 许可）。仅供观察与学习，
+          不得用于飞行安全、导航或商业决策。
+          EOF
+
+          git add -A
+          git commit -m "snapshot: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push -f origin HEAD:data
+
+      - name: 采集结果摘要
+        if: always()
+        run: |
+          {
+            echo "### 快照采集结果"
+            echo ""
+            if [ -f .staging/index.json ]; then
+              node -e "
+                const m = require('./.staging/index.json');
+                console.log('| 机场 | 架数 | 来源 | 备注 |');
+                console.log('|---|---|---|---|');
+                for (const a of m.airports) {
+                  const note = a.error || (a.coverageGap ? '无接收覆盖' : '');
+                  console.log('| ' + a.icao + ' | ' + (a.count ?? 0) + ' | ' + (a.source || '—') + ' | ' + note + ' |');
+                }
+                console.log('');
+                console.log('合计：成功 ' + m.ok + ' / 失败 ' + m.fail);
+              "
+            else
+              echo "未产出 index.json"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
