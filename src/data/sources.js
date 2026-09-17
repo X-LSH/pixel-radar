@@ -150,26 +150,34 @@ export function snapshotSource(getConfig) {
     async run(ctx, signal) {
       const cfg = getConfig();
       const sameOrigin = `${SOURCES.snapshotDir}/${ctx.icao}.json`;
-      const candidates = [];
-
-      // 1) 同源相对路径（除非已确认该目录整体不存在）
-      if (!deadSnapshotDirs.has(SOURCES.snapshotDir)) candidates.push(sameOrigin);
-
-      // 2) raw 镜像（仅当配置了仓库时）
-      if (cfg.repo) {
-        const mirror = SOURCES.rawTemplate
+      const mirror = cfg.repo
+        ? SOURCES.rawTemplate
           .replace('{repo}', cfg.repo)
           .replace('{branch}', cfg.branch || 'data')
-          .replace('{icao}', ctx.icao);
-        if (!deadSnapshotUrls.has(mirror)) candidates.push(mirror);
-      }
+          .replace('{icao}', ctx.icao)
+        : null;
+
+      /**
+       * 顺序是刻意的：**有镜像时先走镜像**。
+       *
+       * 推断出仓库名意味着当前就在 GitHub Pages 上，而线上站点必然没有同源快照
+       * （快照只存在于 data 分支），此时镜像才是权威源。
+       * 若仍先试同源，就注定要为每个机场白撞一次 404 —— 那一条报错无法通过
+       * 「记住失败」消除，因为不试一次就不知道它不存在。
+       *
+       * 本地开发时 detectRepo() 返回空串，repo 为 null，于是只走同源路径，
+       * 行为与之前完全一致，也不会多出任何请求。
+       */
+      const candidates = [];
+      if (mirror && !deadSnapshotUrls.has(mirror)) candidates.push({ url: mirror, isMirror: true });
+      if (!deadSnapshotDirs.has(SOURCES.snapshotDir)) candidates.push({ url: sameOrigin, isMirror: false });
 
       if (!candidates.length) {
         throw new FetchError('同源路径与镜像均无可用快照', 'notfound');
       }
 
       let lastErr = null;
-      for (const url of candidates) {
+      for (const { url, isMirror } of candidates) {
         try {
           const json = await fetchJson(url, { signal, timeoutMs: 8000 });
           const records = extractRecords(json);
@@ -178,12 +186,12 @@ export function snapshotSource(getConfig) {
             records,
             sourceId: `${json.source || 'snapshot'}${json.radiusNm ? ` · ${json.radiusNm}nm` : ''}`,
             fetchedAt,
-            note: '快照',
+            note: isMirror ? '快照 · data 分支' : '快照 · 同源',
           };
         } catch (e) {
           if (e instanceof FetchError && e.kind === 'http' && /HTTP 404/.test(e.message)) {
-            if (url === sameOrigin) deadSnapshotDirs.add(SOURCES.snapshotDir);
-            else deadSnapshotUrls.add(url);
+            if (isMirror) deadSnapshotUrls.add(url);
+            else deadSnapshotDirs.add(SOURCES.snapshotDir);
           }
           lastErr = e;
         }
