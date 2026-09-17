@@ -122,6 +122,19 @@ export function relaySource(getUrl) {
  * 与快照产出节奏吻合。
  */
 export function snapshotSource(getConfig) {
+  /**
+   * 已知不存在的路径。
+   *
+   * 为什么需要：降级链会先试同源路径（本地开发时确实存在），
+   * 再退到 raw 镜像。线上站点没有同源快照，于是每次轮询都撞一个 404 ——
+   * 既在浏览器控制台刷出报错（E2E 的「零控制台错误」直接失败），
+   * 又白费一次请求。404 是确定性结论，记住它，整个会话不再重试。
+   *
+   * 只缓存 404（路径不存在），不缓存网络错误与超时 ——
+   * 那两类是暂态的，下一轮应该照常重试。
+   */
+  const deadUrls = new Set();
+
   return {
     id: 'snapshot',
     label: '静态快照',
@@ -145,8 +158,13 @@ export function snapshotSource(getConfig) {
         );
       }
 
+      const alive = candidates.filter((u) => !deadUrls.has(u));
+      if (!alive.length) {
+        throw new FetchError('同源路径与镜像均无可用快照', 'notfound');
+      }
+
       let lastErr = null;
-      for (const url of candidates) {
+      for (const url of alive) {
         try {
           const json = await fetchJson(url, { signal, timeoutMs: 8000 });
           const records = extractRecords(json);
@@ -158,6 +176,9 @@ export function snapshotSource(getConfig) {
             note: '快照',
           };
         } catch (e) {
+          if (e instanceof FetchError && e.kind === 'http' && /HTTP 404/.test(e.message)) {
+            deadUrls.add(url);
+          }
           lastErr = e;
         }
       }

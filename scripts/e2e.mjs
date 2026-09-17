@@ -202,6 +202,22 @@ async function main() {
   check('每个目标都带阶段（无 unknown）',
     !Object.prototype.hasOwnProperty.call(s0.phases, 'unknown'), JSON.stringify(s0.phases));
 
+  /**
+   * 线上环境额外要求：数据必须是**真实**的，不能是兜底的模拟数据。
+   *
+   * 为什么单独设一道：默认断言只检查「有目标」，而模拟数据同样有目标 ——
+   * 于是「快照为空 → 降级到模拟」这种最需要被发现的故障，反而会被判为通过。
+   * 用 REQUIRE_REAL=1 显式开启这条严格检查。
+   */
+  if (process.env.REQUIRE_REAL === '1') {
+    check('数据源为真实通路（非模拟兜底）',
+      s0.feed.state === 'snapshot' || s0.feed.state === 'live',
+      `${s0.feed.state} / ${s0.feed.sourceId}`);
+    check('目标来自真实快照（未被判定为空）',
+      s0.count > 0 && !!s0.feed.fetchedAt && s0.feed.sourceId !== '模拟',
+      `${s0.count} 架 · 源 ${s0.feed.sourceId}`);
+  }
+
   /* ── 2. 渲染非空白 ── */
   const colorStat = await evaluate(`(() => {
     const cv = document.querySelector('canvas');
@@ -366,6 +382,11 @@ async function main() {
   const kj = await evaluate('JSON.stringify(window.__PIXEL_RADAR__.snapshot())').then(JSON.parse);
   check('机场切换到 KJFK', kj.airport === 'KJFK', kj.airport);
   check('切换后有目标（KJFK 真实快照）', kj.count > 0, `${kj.count} 架 · 源 ${kj.feed.sourceId}`);
+  if (process.env.REQUIRE_REAL === '1') {
+    check('切换机场后仍走真实通路',
+      kj.feed.state === 'snapshot' || kj.feed.state === 'live',
+      `${kj.feed.state} / ${kj.feed.sourceId}`);
+  }
   const kjTitle = await evaluate('document.title');
   check('标题同步更新', /KJFK/.test(kjTitle), kjTitle);
 
