@@ -122,20 +122,23 @@ export function relaySource(getUrl) {
  * 与快照产出节奏吻合。
  */
 /**
- * 已知不存在的快照路径。
+ * 已知不存在的快照路径与目录前缀。
  *
  * 为什么需要：降级链会先试同源路径（本地开发时确实存在），再退到 raw 镜像。
- * 线上站点没有同源快照，于是每次轮询都撞一个 404 —— 既在浏览器控制台刷出报错，
+ * 线上站点没有同源快照，于是每次都撞一个 404 —— 既在浏览器控制台刷出报错，
  * 又白费一次请求。
  *
- * 为什么放在**模块级**而不是 source 实例里：换机场、改配置、模拟态重试都会
- * 重建整条源链，「某路径不存在」是站点的属性而非某次探测的暂态。
- * 放在实例里的话，每次重建源链都会重新撞一次（实测 5s 轮询的 404 消失了，
- * 但换机场那次仍在刷）。
+ * 两个设计要点，都是实测踩出来的：
+ *  1. 放在**模块级**而不是 source 实例里：换机场 / 改配置 / 模拟态重试都会
+ *     重建整条源链，「某路径不存在」是站点属性，不是某次探测的暂态。
+ *  2. 按**目录前缀**记，而不是按单个 URL：实际的事实是「这个站点没有同源快照
+ *     目录」，而不是「ZBAA 那个文件不在」。按单 URL 记的话，每换一个机场
+ *     仍会各撞一次 404（线上实测恰好剩 2 条，就是 ZBAA + KJFK 各一次）。
  *
  * 只记 404（路径不存在）；网络错误与超时属暂态，仍照常重试。
  */
 const deadSnapshotUrls = new Set();
+const deadSnapshotDirs = new Set();
 
 export function snapshotSource(getConfig) {
   return {
@@ -146,28 +149,27 @@ export function snapshotSource(getConfig) {
     available: () => true,
     async run(ctx, signal) {
       const cfg = getConfig();
+      const sameOrigin = `${SOURCES.snapshotDir}/${ctx.icao}.json`;
       const candidates = [];
 
-      // 1) 同源相对路径
-      candidates.push(`${SOURCES.snapshotDir}/${ctx.icao}.json`);
+      // 1) 同源相对路径（除非已确认该目录整体不存在）
+      if (!deadSnapshotDirs.has(SOURCES.snapshotDir)) candidates.push(sameOrigin);
 
       // 2) raw 镜像（仅当配置了仓库时）
       if (cfg.repo) {
-        candidates.push(
-          SOURCES.rawTemplate
-            .replace('{repo}', cfg.repo)
-            .replace('{branch}', cfg.branch || 'data')
-            .replace('{icao}', ctx.icao),
-        );
+        const mirror = SOURCES.rawTemplate
+          .replace('{repo}', cfg.repo)
+          .replace('{branch}', cfg.branch || 'data')
+          .replace('{icao}', ctx.icao);
+        if (!deadSnapshotUrls.has(mirror)) candidates.push(mirror);
       }
 
-      const alive = candidates.filter((u) => !deadSnapshotUrls.has(u));
-      if (!alive.length) {
+      if (!candidates.length) {
         throw new FetchError('同源路径与镜像均无可用快照', 'notfound');
       }
 
       let lastErr = null;
-      for (const url of alive) {
+      for (const url of candidates) {
         try {
           const json = await fetchJson(url, { signal, timeoutMs: 8000 });
           const records = extractRecords(json);
@@ -180,7 +182,8 @@ export function snapshotSource(getConfig) {
           };
         } catch (e) {
           if (e instanceof FetchError && e.kind === 'http' && /HTTP 404/.test(e.message)) {
-            deadSnapshotUrls.add(url);
+            if (url === sameOrigin) deadSnapshotDirs.add(SOURCES.snapshotDir);
+            else deadSnapshotUrls.add(url);
           }
           lastErr = e;
         }
@@ -192,7 +195,7 @@ export function snapshotSource(getConfig) {
 
 /** 供自检与调试查看已判死的路径 */
 export function deadSnapshotPaths() {
-  return [...deadSnapshotUrls];
+  return { dirs: [...deadSnapshotDirs], urls: [...deadSnapshotUrls] };
 }
 
 /**
