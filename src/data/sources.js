@@ -121,20 +121,23 @@ export function relaySource(getUrl) {
  * —— 后者带 `Access-Control-Allow-Origin: *` 且缓存 5 分钟，
  * 与快照产出节奏吻合。
  */
-export function snapshotSource(getConfig) {
-  /**
-   * 已知不存在的路径。
-   *
-   * 为什么需要：降级链会先试同源路径（本地开发时确实存在），
-   * 再退到 raw 镜像。线上站点没有同源快照，于是每次轮询都撞一个 404 ——
-   * 既在浏览器控制台刷出报错（E2E 的「零控制台错误」直接失败），
-   * 又白费一次请求。404 是确定性结论，记住它，整个会话不再重试。
-   *
-   * 只缓存 404（路径不存在），不缓存网络错误与超时 ——
-   * 那两类是暂态的，下一轮应该照常重试。
-   */
-  const deadUrls = new Set();
+/**
+ * 已知不存在的快照路径。
+ *
+ * 为什么需要：降级链会先试同源路径（本地开发时确实存在），再退到 raw 镜像。
+ * 线上站点没有同源快照，于是每次轮询都撞一个 404 —— 既在浏览器控制台刷出报错，
+ * 又白费一次请求。
+ *
+ * 为什么放在**模块级**而不是 source 实例里：换机场、改配置、模拟态重试都会
+ * 重建整条源链，「某路径不存在」是站点的属性而非某次探测的暂态。
+ * 放在实例里的话，每次重建源链都会重新撞一次（实测 5s 轮询的 404 消失了，
+ * 但换机场那次仍在刷）。
+ *
+ * 只记 404（路径不存在）；网络错误与超时属暂态，仍照常重试。
+ */
+const deadSnapshotUrls = new Set();
 
+export function snapshotSource(getConfig) {
   return {
     id: 'snapshot',
     label: '静态快照',
@@ -158,7 +161,7 @@ export function snapshotSource(getConfig) {
         );
       }
 
-      const alive = candidates.filter((u) => !deadUrls.has(u));
+      const alive = candidates.filter((u) => !deadSnapshotUrls.has(u));
       if (!alive.length) {
         throw new FetchError('同源路径与镜像均无可用快照', 'notfound');
       }
@@ -177,7 +180,7 @@ export function snapshotSource(getConfig) {
           };
         } catch (e) {
           if (e instanceof FetchError && e.kind === 'http' && /HTTP 404/.test(e.message)) {
-            deadUrls.add(url);
+            deadSnapshotUrls.add(url);
           }
           lastErr = e;
         }
@@ -185,6 +188,11 @@ export function snapshotSource(getConfig) {
       throw lastErr || new FetchError('无可用快照', 'notfound');
     },
   };
+}
+
+/** 供自检与调试查看已判死的路径 */
+export function deadSnapshotPaths() {
+  return [...deadSnapshotUrls];
 }
 
 /**
