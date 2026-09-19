@@ -1,0 +1,147 @@
+{
+  "generatedAt": 1789844551991,
+  "generatedAtIso": "2026-09-19T19:02:31.991Z",
+  "radiusNm": 50,
+  "ok": 19,
+  "fail": 1,
+  "airports": [
+    {
+      "icao": "ZBAA",
+      "count": 6,
+      "fetchedAt": 1789844416488,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "ZSPD",
+      "count": 0,
+      "fetchedAt": 1789844425623,
+      "source": "adsb.lol",
+      "coverageGap": true
+    },
+    {
+      "icao": "ZGGG",
+      "count": 5,
+      "fetchedAt": 1789844428289,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "ZGSZ",
+      "count": 14,
+      "fetchedAt": 1789844430962,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "ZUUU",
+      "count": 0,
+      "fetchedAt": 1789844445587,
+      "source": "adsb.lol",
+      "coverageGap": true
+    },
+    {
+      "icao": "VHHH",
+      "count": 14,
+      "fetchedAt": 1789844448460,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "RJAA",
+      "count": 6,
+      "fetchedAt": 1789844451122,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "RJTT",
+      "count": 0,
+      "error": "HTTP 403"
+    },
+    {
+      "icao": "RKSI",
+      "count": 13,
+      "fetchedAt": 1789844489202,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "WSSS",
+      "count": 4,
+      "fetchedAt": 1789844492021,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "OMDB",
+      "count": 24,
+      "fetchedAt": 1789844494699,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "EGLL",
+      "count": 75,
+      "fetchedAt": 1789844503256,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "LFPG",
+      "count": 48,
+      "fetchedAt": 1789844511404,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "EDDF",
+      "count": 45,
+      "fetchedAt": 1789844514109,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "KJFK",
+      "count": 227,
+      "fetchedAt": 1789844516859,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "KLAX",
+      "count": 202,
+      "fetchedAt": 1789844525184,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "KSFO",
+      "count": 162,
+      "fetchedAt": 1789844527887,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "KSEA",
+      "count": 68,
+      "fetchedAt": 1789844530592,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "YSSY",
+      "count": 1,
+      "fetchedAt": 1789844549333,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "YMML",
+      "count": 10,
+      "fetchedAt": 1789844551990,
+      "source": "adsb.lol",
+      "coverageGap": false
+    }
+  ]
+}
