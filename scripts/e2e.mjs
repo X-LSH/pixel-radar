@@ -14,10 +14,13 @@
  * 用法：
  *   node scripts/e2e.mjs                       默认 http://127.0.0.1:5173/
  *   BASE=http://127.0.0.1:4173/pixel-radar/ node scripts/e2e.mjs
+ *   CHROME_PATH=... CDP_PORT=9555 node scripts/e2e.mjs   指定浏览器 / 端口
  */
 
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -25,9 +28,31 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SHOTS = resolve(ROOT, 'shots');
 const BASE = process.env.BASE || 'http://127.0.0.1:5173/';
 const PORT = Number(process.env.CDP_PORT || 9351);
+/** 配置目录放系统临时目录 —— 写死 C:/Users/... 会让脚本在别的机器上直接崩 */
 const PROFILE = process.env.CDP_PROFILE
-  || `C:/Users/${process.env.USERNAME || 'LSH'}/AppData/Local/Temp/pixel-radar-cdp-${Date.now()}`;
-const CHROME = process.env.CHROME_PATH || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
+  || resolve(tmpdir(), `pixel-radar-cdp-${Date.now()}`);
+
+/** 按平台找已安装的 Chrome/Chromium，找不到再回落到平台惯例路径 */
+function detectChrome() {
+  const candidates = process.platform === 'win32'
+    ? [
+      'C:/Program Files/Google/Chrome/Application/chrome.exe',
+      'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+      `${process.env.ProgramFiles}/Google/Chrome/Application/chrome.exe`,
+      `${process.env['ProgramFiles(x86)']}/Google/Chrome/Application/chrome.exe`,
+      `${process.env.LOCALAPPDATA}/Google/Chrome/Application/chrome.exe`,
+    ].filter(Boolean)
+    : process.platform === 'darwin'
+      ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome']
+      : [
+        '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable',
+        '/usr/bin/chromium', '/usr/bin/chromium-browser',
+        '/snap/bin/chromium',
+      ];
+  return candidates.find((p) => existsSync(p)) || candidates[0];
+}
+
+const CHROME = process.env.CHROME_PATH || detectChrome();
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const isLocal = /(127\.0\.0\.1|localhost|\[::1\])/.test(BASE);
