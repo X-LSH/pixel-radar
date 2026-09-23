@@ -172,19 +172,23 @@ export const SOURCES = {
   /** 同源静态快照目录（由 scripts/collect.mjs 或 Actions 生成） */
   snapshotDir: 'data/snapshots',
   /**
-   * 快照镜像模板（并行竞速，谁先成功用谁）：{repo} 与 {branch} 运行时注入。
+   * 快照镜像模板（并行竞速，择优取用）：{repo} 与 {branch} 运行时注入。
    *
-   * 为什么是三个而不是一个：`raw.githubusercontent.com` 在部分网络
-   * 环境（尤其中国大陆）不可达，一旦它挂起，唯一镜像就意味着
-   * 「快照链路整体不可达 → 永远落模拟数据」。三个候选全部带
-   * `Access-Control-Allow-Origin: *`，域名特性互补：
-   *   · raw            —— 官方、缓存 5 分钟，与采集节奏吻合（首选）
-   *   · cdn.jsdelivr   —— 全球 CDN，国内通常可达
-   *   · ghproxy.net    —— raw 的反代，raw 被墙时的兜底
+   * 为什么是五个而不是一个：`raw.githubusercontent.com` 在部分网络
+   * 环境（尤其中国大陆）不可达或剧烈抖动 —— 本机直连实测 0.7~7.9s，
+   * 单候选一挂就意味着「快照链路不可达 → 永远落模拟数据」。
+   * 五个候选全部带 `Access-Control-Allow-Origin: *`，按故障域互补：
+   *   · raw              —— 官方、缓存 5 分钟，与采集节奏吻合（首选）
+   *   · cdn.jsdelivr     —— jsDelivr 主边缘（Cloudflare），国内通常可达
+   *   · fastly.jsdelivr  —— jsDelivr 多 CDN 的 Fastly 边缘（独立故障域）
+   *   · gcore.jsdelivr   —— jsDelivr 多 CDN 的 Gcore 边缘（独立故障域）
+   *   · ghproxy.net      —— raw 的反代，GitHub 直连被墙时的兜底
    */
   mirrorTemplates: [
     'https://raw.githubusercontent.com/{repo}/{branch}/data/snapshots/{icao}.json',
     'https://cdn.jsdelivr.net/gh/{repo}@{branch}/data/snapshots/{icao}.json',
+    'https://fastly.jsdelivr.net/gh/{repo}@{branch}/data/snapshots/{icao}.json',
+    'https://gcore.jsdelivr.net/gh/{repo}@{branch}/data/snapshots/{icao}.json',
     'https://ghproxy.net/https://raw.githubusercontent.com/{repo}/{branch}/data/snapshots/{icao}.json',
   ],
   /**
@@ -193,8 +197,13 @@ export const SOURCES = {
    * .gitignore 忽略，全新 clone 必然 404 → 100% 落到模拟数据。
    */
   fallbackRepo: 'X-LSH/pixel-radar',
-  /** 单个快照候选的超时：必须明显小于启动预算 6s，被墙的候选不能拖死启动 */
-  snapshotTimeoutMs: 4000,
+  /**
+   * 单个快照候选的超时。必须盖住慢网直连的尾部延迟（本机直连 raw 实测
+   * 0.7~7.9s）：曾经的 4s 会把「慢而活」的候选全部掐死 —— CDP 注入 5s RTT
+   * 的复现探针里四个候选齐齐 ERR_ABORTED@4s → 每轮必败 → 永久模拟数据。
+   * 启动预算仍是 6s：超预算先给模拟兜底，迟到成功的候选会自动翻回真实。
+   */
+  snapshotTimeoutMs: 8000,
   /** 快照年龄小于该值即「足够新鲜」，先到先得，不必等更慢的候选 */
   snapshotFreshMs: 10 * 60 * 1000,
   /**

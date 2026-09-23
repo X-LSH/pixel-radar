@@ -25,8 +25,9 @@ import { Tracker } from '../state/tracker.js';
 
 /** 初始探测的预算：超时即先上模拟，别让用户对着启动幕发呆 */
 const BOOT_BUDGET_MS = 6000;
-/** 全链失败后，隔多久重试一次整条链 */
-const CHAIN_RETRY_MS = 60000;
+/** 模拟态重试整条链的阶梯：起步 5s、每败一阶翻倍、60s 封顶、成功即复位 */
+const CHAIN_RETRY_INITIAL_MS = 5000;
+const CHAIN_RETRY_MAX_MS = 60000;
 /** 连续失败多少次就降级到下一个源 */
 const FAILS_BEFORE_DOWNGRADE = 2;
 
@@ -45,6 +46,7 @@ export function createPipeline({
   let visible = true;
   let running = false;
   let chainRetryAt = 0;
+  let retryDelay = CHAIN_RETRY_INITIAL_MS;
   let bootedAt = 0;
   let lastSuccessAt = 0;
   let lastObservationAt = 0;
@@ -121,6 +123,7 @@ export function createPipeline({
     const feedState = cursor === 0 ? 'live' : cursor === 1 ? 'snapshot' : 'live';
     mode = sources[cursor].id;
     consecutiveFails = 0;
+    retryDelay = CHAIN_RETRY_INITIAL_MS;
     lastCount = planes.length;
 
     publishFeed({
@@ -169,7 +172,8 @@ export function createPipeline({
     }
     mode = 'simulation';
     sourceId = 'simulation';
-    chainRetryAt = Date.now() + CHAIN_RETRY_MS;
+    chainRetryAt = Date.now() + retryDelay;
+    retryDelay = Math.min(retryDelay * 2, CHAIN_RETRY_MAX_MS);
     publishFeed({
       state: 'simulation',
       label: labelOf('simulation'),
@@ -197,7 +201,7 @@ export function createPipeline({
    * 调度
    * ------------------------------------------------------------ */
   function nextInterval() {
-    if (mode === 'simulation') return CHAIN_RETRY_MS;
+    if (mode === 'simulation') return Math.max(0, chainRetryAt - Date.now());
     if (!visible) return POLL.hiddenMs;
     if (consecutiveFails > 0) {
       const idx = Math.min(consecutiveFails, POLL.backoffMs.length) - 1;
@@ -227,7 +231,7 @@ export function createPipeline({
         publishTrail();
         try {
           await pullOnce(ctx);
-          tracker.reset();
+          // 不在此 reset：pullOnce 刚写入的真实观测会被连同模拟轨迹一起清掉 → 恢复后空屏一轮
           sim = null;
         } catch (e) {
           enterSimulation(reasonOf(e));
@@ -318,7 +322,7 @@ export function createPipeline({
     } else {
       enterSimulation(winner === 'exhausted' ? '全部上游不可用' : '探测超时');
     }
-    scheduleNext(mode === 'simulation' ? CHAIN_RETRY_MS : POLL.visibleMs);
+    scheduleNext(mode === 'simulation' ? 0 : POLL.visibleMs);
   }
 
   function stop() {
@@ -330,14 +334,10 @@ export function createPipeline({
   /**
    * 主循环调用：推进模拟并产出渲染帧。
    *
-   * **时间基准必须是墙钟（Date.now()），不能用主循环传进来的 rAF 时间戳。**
-   * ingest 走的是 Date.now()（epoch），两者一旦不同源，
-   * `now - tPrev` 就会是一个约 -1.77e12 的巨大负数：
-   * 插值分支把它钳到 0 → 目标永远停在上一个观测点；
-   * 外推分支 `since > 0` 永不成立 → 外推、25 秒上限、垂直速度推算全部变死代码；
-   * 陈旧判定与幽灵清理的差值恒为负 → 永不生效。
-   * 画面上只表现为「飞机每隔 5 秒跳一下」，极难归因，所以这里写死墙钟。
-   * 状态栏的快照年龄、信息卡的「最后更新」也同用这一只钟。
+   * **时间基准必须是墙钟（Date.now()），不能用 rAF 时间戳。** 两者一旦不同源，
+   * `now - tPrev` 是约 -1.77e12 的巨负数 → 插值/外推/陈旧判定/幽灵清理全变
+   * 死代码，表现为「飞机每隔 5 秒跳一下」，极难归因。状态栏快照年龄、信息卡
+   * 「最后更新」也同用这一只钟。
    */
   function update(dtSec) {
     const wall = Date.now();
