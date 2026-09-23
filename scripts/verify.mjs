@@ -834,6 +834,145 @@ group('渲染护栏（硬上限剔除 · 尾迹视口剔除）');
 }
 
 /* ══════════════════════════════════════════════════════════════
+ * 15) 快照源链路（多镜像竞速 · 兜底仓库 · 404 判死）
+ * ──────────────────────────────────────────────────────────────
+ * 这组补的是「为什么线上/本地总是模拟数据」这类故障的防线：
+ * 快照链路是默认通路，它一断，界面 100% 落到造的模拟数据。
+ * 全部用 mock fetch，不开网络、不碰真仓库。
+ * ══════════════════════════════════════════════════════════════ */
+group('快照源链路（镜像竞速与判死）');
+{
+  const { SOURCES } = await load('src/config.js');
+  const origFetch = globalThis.fetch;
+  let seq = 0;
+  /** 每个用例用独立模块实例：dead 快照集合是模块级状态，必须相互隔离 */
+  const freshModule = () => import(
+    pathToFileURL(resolve(ROOT, 'src/data/sources.js')).href + `?fresh=${++seq}`
+  );
+
+  const ctx = { icao: 'ZBAA', lat: 40.0773, lon: 116.5967, radiusNm: 50, radiusKm: 92.6 };
+  const payload = (over = {}) => ({
+    icao: 'ZBAA', fetchedAt: Date.now(), source: 'adsb.lol', radiusNm: 50,
+    ac: [{ hex: 'abc123', flight: 'TEST1  ', lat: 40, lon: 116, alt_baro: 10000, gs: 400, track: 90 }],
+    ...over,
+  });
+  const resOk = (data) => ({ ok: true, status: 200, json: async () => data });
+  const res404 = () => ({ ok: false, status: 404, json: async () => ({}) });
+
+  try {
+    /* 用例 1：已知仓库（GitHub Pages）→ 只打镜像，不打同源 */
+    {
+      const urls = [];
+      globalThis.fetch = async (u) => { urls.push(String(u)); return resOk(payload()); };
+      const { snapshotSource: src } = await freshModule();
+      const r = await src(() => ({ repo: 'x/y', branch: 'data' })).run(ctx);
+      ok('已知仓库时不请求同源快照（线上零 404）',
+        !urls.some((u) => !/^https?:/.test(u)), urls.filter((u) => !/^https?:/.test(u)).join(','));
+      const hosts = SOURCES.mirrorTemplates.length;
+      ok('三个镜像域名全部发起竞速',
+        urls.length === hosts
+        && urls.some((u) => u.includes('raw.githubusercontent.com'))
+        && urls.some((u) => u.includes('cdn.jsdelivr.net'))
+        && urls.some((u) => u.includes('ghproxy.net')),
+        `${urls.length} 个请求`);
+      ok('竞速结果可解析出记录', r.records.length === 1 && r.fetchedAt > 0, `records=${r.records.length}`);
+    }
+
+    /* 用例 2：仓库名推断失败（本地开发）→ fallbackRepo + 同源参与 */
+    {
+      const urls = [];
+      globalThis.fetch = async (u) => { urls.push(String(u)); return resOk(payload()); };
+      const { snapshotSource: src } = await freshModule();
+      await src(() => ({ repo: '', branch: 'data' })).run(ctx);
+      ok('推断不出仓库时用 fallbackRepo 拼镜像',
+        urls.some((u) => u.includes(`raw.githubusercontent.com/${SOURCES.fallbackRepo}/`)),
+        SOURCES.fallbackRepo);
+      ok('推断不出仓库时同源快照参与竞速',
+        urls.some((u) => u === `data/snapshots/${ctx.icao}.json`), urls.find((u) => !/^https?:/.test(u)) || '未请求');
+    }
+
+    /* 用例 3：镜像同时可达但年龄不同 → 取 fetchedAt 最新的一份 */
+    {
+      const now = Date.now();
+      const age = { raw: 3 * 3600e3, jsdelivr: 90 * 60e3, ghproxy: 2 * 3600e3 };
+      globalThis.fetch = async (u) => {
+        const s = String(u);
+        const off = s.includes('jsdelivr') ? age.jsdelivr : s.includes('ghproxy') ? age.ghproxy : age.raw;
+        return resOk(payload({ fetchedAt: now - off })); // 全部陈旧，强制走「全量择优」
+      };
+      const { snapshotSource: src } = await freshModule();
+      const r = await src(() => ({ repo: 'x/y', branch: 'data' })).run(ctx);
+      ok('多镜像择优取 fetchedAt 最新者', r.fetchedAt === now - age.jsdelivr,
+        `age=${Math.round((now - r.fetchedAt) / 60000)}min`);
+    }
+
+    /* 用例 4：所有候选 404 → 抛错 + 记入判死集合（下个周期不再撞） */
+    {
+      globalThis.fetch = async () => res404();
+      const mod = await freshModule();
+      const src = mod.snapshotSource;
+      let threw = null;
+      try { await src(() => ({ repo: '', branch: 'data' })).run(ctx); } catch (e) { threw = e; }
+      ok('全 404 时报 FetchError 而非挂起', threw && threw.name === 'FetchError', threw ? threw.name : '未抛错');
+      const dead = mod.deadSnapshotPaths();
+      ok('三个镜像 URL 全部判死', dead.urls.length === SOURCES.mirrorTemplates.length,
+        `dead=${dead.urls.length}`);
+      ok('同源目录判死（后续周期不再请求）', dead.dirs.includes(SOURCES.snapshotDir),
+        dead.dirs.join(',') || '未判死');
+    }
+
+    /* 用例 5：某镜像挂死不返回 → 新鲜结果先到即收口，不被拖垮 */
+    {
+      globalThis.fetch = async (u) => (String(u).includes('raw.githubusercontent')
+        ? new Promise(() => {}) /* 模拟被墙域名：永不返回 */
+        : resOk(payload({ fetchedAt: Date.now() })));
+      const { snapshotSource: src } = await freshModule();
+      const t0 = Date.now();
+      const guarded = Promise.race([
+        src(() => ({ repo: 'x/y', branch: 'data' })).run(ctx),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('早退失效：被挂死候选拖住')), 3000)),
+      ]);
+      let out = null;
+      let err = null;
+      try { out = await guarded; } catch (e) { err = e; }
+      const elapsed = Date.now() - t0;
+      ok('新鲜结果先到即收口（不等挂死候选）', !!out && elapsed < 2000,
+        err ? err.message : `${elapsed}ms`);
+    }
+
+    /* 用例 6：镜像全部网络失败（本地离线/被墙）→ 本地同源文件兜底 */
+    {
+      globalThis.fetch = async (u) => (String(u).startsWith('http')
+        ? Promise.reject(new TypeError('network down'))
+        : resOk(payload({ fetchedAt: Date.now() - 60e3 })));
+      const { snapshotSource: src } = await freshModule();
+      const r = await src(() => ({ repo: '', branch: 'data' })).run(ctx);
+      ok('镜像不可达时本地同源快照兜底', r && r.note === '快照 · 同源', r ? r.note : '失败');
+    }
+
+    /* 用例 7：首响是旧数据 → 600ms 窗口内赶到的更优结果应当被等到 */
+    {
+      const now = Date.now();
+      globalThis.fetch = async (u) => {
+        if (String(u).includes('jsdelivr')) {
+          await new Promise((r) => setTimeout(r, 450)); // 窗口内（600ms）赶到
+          return resOk(payload({ fetchedAt: now - 15 * 60e3 })); // 15min 前：不触发「足够新鲜」早退
+        }
+        return resOk(payload({ fetchedAt: now - 3 * 3600e3 })); // 3 小时前
+      };
+      const { snapshotSource: src } = await freshModule();
+      const t0 = Date.now();
+      const r = await src(() => ({ repo: 'x/y', branch: 'data' })).run(ctx);
+      ok('窗口内等到更优结果（择优而非先到先赢）',
+        r && r.fetchedAt === now - 15 * 60e3 && Date.now() - t0 < 2000,
+        r ? `选中 ${Math.round((now - r.fetchedAt) / 60000)}min 前 · ${Date.now() - t0}ms` : '失败');
+    }
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
  * 汇总
  * ══════════════════════════════════════════════════════════════ */
 console.log(`\n${'═'.repeat(58)}`);
