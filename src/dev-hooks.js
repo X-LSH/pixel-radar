@@ -47,7 +47,7 @@ export function installDevHooks({ store, stage, pipeline, actions, getFrame, isR
         lon: +f.lon.toFixed(5),
         altFt: Math.round(f.altFt),
         gsKt: f.plane.gsKt,
-        trackDeg: Math.round(f.plane.trackDeg),
+        trackDeg: f.plane.trackDeg == null ? null : Math.round(f.plane.trackDeg),
         onGround: f.plane.onGround,
         phase: PHASE_LABEL[f.plane.phase] || f.plane.phase,
         trail: f.trail ? f.trail.length : 0,

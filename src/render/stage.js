@@ -16,7 +16,7 @@ import { Projection } from '../core/geo.js';
 import { drawBasemap } from './basemap.js';
 import { createSweep } from './sweep.js';
 import { drawTrails } from './trails.js';
-import { drawPlanes, pickAt } from './planes.js';
+import { drawPlanes, pickAt, cullByDistance } from './planes.js';
 import { drawHud, drawPlaneLabels } from './hud.js';
 import { createCrtLayer, drawBloom } from './crt.js';
 import { createSpriteLibrary } from './sprites.js';
@@ -227,6 +227,14 @@ export function createStage({ canvas, settings }) {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.imageSmoothingEnabled = false;
 
+    /**
+     * 目标数冲破硬护栏时按距机场由近及远截断 —— 让 config.js 里
+     * `PERF.hardCutoff` 的承诺成为现实。未超限时返回原数组，零开销。
+     * 注意：HUD 与统计仍用**完整** frame，被剔除的只是「画不出来」，
+     * 不是「不存在」—— 绝不能把真实架数藏起来。
+     */
+    const list = cullByDistance(frame, proj, PERF.hardCutoff);
+
     /* 1) 底图 */
     if (bmap) {
       const dx = Math.round(anchorX - bmap.anchorX) - bmap.margin;
@@ -238,9 +246,11 @@ export function createStage({ canvas, settings }) {
     }
 
     /* 2) 尾迹 */
-    drawTrails(ctx, frame, proj, {
+    drawTrails(ctx, list, proj, {
       enabled: settings.trailsOn,
       maxPlanes: PERF.trailCutoff,
+      w: W,
+      h: H,
     });
 
     /* 3) 雷达扫描（中心在天线，即机场位置） */
@@ -256,7 +266,7 @@ export function createStage({ canvas, settings }) {
     sweep.draw(ctx, anchorX, anchorY, radius);
 
     /* 4) 目标 */
-    drawPlanes(ctx, frame, proj, sprites, {
+    drawPlanes(ctx, list, proj, sprites, {
       w: W,
       h: H,
       sweep,
@@ -269,7 +279,7 @@ export function createStage({ canvas, settings }) {
     if (settings.crt) drawBloom(ctx, canvas, W, H);
 
     /* 6) 标签 */
-    drawPlaneLabels(ctx, frame, proj, {
+    drawPlaneLabels(ctx, list, proj, {
       enabled: settings.labelsOn,
       selectedHex: o.selectedHex,
       hoverHex: o.hoverHex,
@@ -288,7 +298,11 @@ export function createStage({ canvas, settings }) {
       frameCount: frame.length,
     });
 
-    /* 8) CRT */
+    /* 8) CRT ——
+     * 噪点必须逐帧推进，否则 `noiseTiles` 永远停在第 0 张、偏移永远是
+     * NOISE_OFFSETS[0]，整屏就是一张静止纹理，「信号噪声」的语义没了。
+     * 暂停时不推进：规格要求「暂停时画面真正静止」，噪点闪烁属于画面内容。 */
+    if (!o.paused) crt.tick(o.dtMs || 0);
     crt.draw(ctx, {
       crt: settings.crt,
       scanlines: settings.scanlines,

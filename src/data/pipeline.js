@@ -93,10 +93,7 @@ export function createPipeline({
     const planes = [];
     for (const raw of res.records) {
       const p = normalizePlane(raw, res.sourceId);
-      if (!p) continue;
-      // 观测时刻：信息卡的「最后更新」以此为准，而不是页面渲染时刻
-      p.obsAt = lastSuccessAt;
-      planes.push(p);
+      if (p) planes.push(p);
     }
 
     /**
@@ -111,6 +108,10 @@ export function createPipeline({
 
     lastSuccessAt = Date.now();
     lastObservationAt = lastSuccessAt;
+    // 观测时刻：信息卡的「最后更新」以此为准，而不是页面渲染时刻。
+    // 必须在 lastSuccessAt 更新**之后**再写 —— 若在归一化循环里写入，
+    // 每个观测带的都是上一轮的时间戳，「最后更新」会凭空多一个轮询周期的误差。
+    for (const p of planes) p.obsAt = lastSuccessAt;
     sourceId = res.sourceId;
     noteText = res.note || '';
 
@@ -326,20 +327,32 @@ export function createPipeline({
     if (pollAbort) pollAbort.abort();
   }
 
-  /** 主循环调用：推进模拟并产出渲染帧 */
-  function update(now, dtSec) {
+  /**
+   * 主循环调用：推进模拟并产出渲染帧。
+   *
+   * **时间基准必须是墙钟（Date.now()），不能用主循环传进来的 rAF 时间戳。**
+   * ingest 走的是 Date.now()（epoch），两者一旦不同源，
+   * `now - tPrev` 就会是一个约 -1.77e12 的巨大负数：
+   * 插值分支把它钳到 0 → 目标永远停在上一个观测点；
+   * 外推分支 `since > 0` 永不成立 → 外推、25 秒上限、垂直速度推算全部变死代码；
+   * 陈旧判定与幽灵清理的差值恒为负 → 永不生效。
+   * 画面上只表现为「飞机每隔 5 秒跳一下」，极难归因，所以这里写死墙钟。
+   * 状态栏的快照年龄、信息卡的「最后更新」也同用这一只钟。
+   */
+  function update(dtSec) {
+    const wall = Date.now();
     if (mode === 'simulation' && sim) {
       sim.update(dtSec);
       // 模拟数据本身是连续的，直接作为观测写入
       const list = [...sim.planes.values()];
-      for (const p of list) p.obsAt = now;
-      tracker.ingest(list, now);
+      for (const p of list) p.obsAt = wall;
+      tracker.ingest(list, wall);
       if (list.length !== lastCount) {
         lastCount = list.length;
-        publishFeed({ count: list.length, fetchedAt: now, sourceId: '模拟' });
+        publishFeed({ count: list.length, fetchedAt: wall, sourceId: '模拟' });
       }
     }
-    const frame = tracker.frame(now, dtSec);
+    const frame = tracker.frame(wall, dtSec);
     // 只在架数真正变化时广播 —— 每帧广播会把侧栏 DOM 打爆
     if (frame.length !== lastCount) {
       lastCount = frame.length;

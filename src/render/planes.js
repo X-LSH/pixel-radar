@@ -145,6 +145,31 @@ export function pickAt(frame, proj, px, py, radius = 14) {
   return best;
 }
 
+/**
+ * 硬护栏：目标数超过上限时，按「距机场由近及远」保留前 limit 个。
+ *
+ * 为什么要有：`PERF.hardCutoff` 的注释承诺了这条降级路径，而中继模式下
+ * 请求半径可达 250nm，目标数完全可能冲破 500 —— 届时若没有护栏，
+ * 绘制成本会随目标数线性失控。
+ *
+ * 未超限时返回**原数组**：热路径上不分配、不排序，代价为零。
+ * @param {Array} frame tracker.frame() 输出
+ * @param {object} proj 局部等距方位投影（中心在机场，故其极径即离机场距离）
+ * @param {number} limit 保留上限
+ */
+export function cullByDistance(frame, proj, limit) {
+  if (!limit || frame.length <= limit) return frame;
+  const scored = new Array(frame.length);
+  for (let i = 0; i < frame.length; i++) {
+    const p = proj.project(frame[i].lat, frame[i].lon);
+    scored[i] = { i, d: p.x * p.x + p.y * p.y };
+  }
+  scored.sort((a, b) => a.d - b.d);
+  const out = new Array(limit);
+  for (let k = 0; k < limit; k++) out[k] = frame[scored[k].i];
+  return out;
+}
+
 /** 统计聚合：架数、空中/地面、最高、最快、最忙航向 */
 export function computeStats(frame) {
   let air = 0;

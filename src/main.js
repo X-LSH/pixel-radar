@@ -58,6 +58,18 @@ async function boot() {
   const canvas = $('screen');
   const stage = createStage({ canvas, settings });
 
+  /**
+   * 持久化的视图设置必须真正灌给舞台：漏掉这一步，侧栏会高亮上次的 50km、
+   * 屏幕却按默认 20km 画环；zoomIndex 与舞台脱钩后，下次滚轮还会跨档跳变。
+   */
+  const ringKm = VIEW.rings.includes(settings.ringKm) ? settings.ringKm : VIEW.defaultRing;
+  const zoomIndex = CLAMP(settings.zoomIndex, 0, VIEW.zoomMults.length - 1);
+  if (ringKm !== settings.ringKm || zoomIndex !== settings.zoomIndex) {
+    store.set({ ringKm, zoomIndex }, { silent: true }); // 越界值纠回默认，避免控件高亮落空
+  }
+  stage.setRing(ringKm);
+  stage.zoomTo(zoomIndex);
+
   /* ── 3) 界面 ──
    * actions 必须先以**同一个对象引用**交给 chrome，之后再填充实现。
    * 如果在这里传字面量 {}，chrome 闭包捕获的就是那个空对象，
@@ -100,7 +112,9 @@ async function boot() {
     },
     resetView: () => {
       stage.resetView();
+      store.set({ zoomIndex: VIEW.defaultZoomIndex }); // 档位复位必须写回 store，否则下次滚轮跨档跳变
       setFollow(null);
+      chrome.syncControls(store.get());
       chrome.setStatus(statusOf());
     },
     screenshot: () => exportPng({
@@ -237,7 +251,7 @@ async function boot() {
     const rect = viewport.getBoundingClientRect();
     if (rect.width < 40 || rect.height < 40) return;
     const changed = stage.resize(rect.width, rect.height);
-    store.patch('resolution', stage.resolution, true);
+    store.patch('resolution', stage.resolution);
     if (changed) chrome.setStatus(statusOf());
   }
 
@@ -269,7 +283,7 @@ async function boot() {
     fps += (1000 / step - fps) * 0.08;
 
     // 暂停时不推进模拟、不重算外推 —— 画面必须真的静止，而不是慢慢漂
-    if (!paused) frame = pipeline.update(now, dtSec);
+    if (!paused) frame = pipeline.update(dtSec);
 
     // 跟随：把镜头平滑推向目标
     if (followHex) {
@@ -301,7 +315,7 @@ async function boot() {
       statsAcc = 0;
       const s = computeStats(frame);
       chrome.setStats(s);
-      store.patch('stats', s, true);
+      store.patch('stats', s);
       chrome.setStatus(statusOf());
     }
   }

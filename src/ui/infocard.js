@@ -138,7 +138,9 @@ export function createInfoCard({ store }) {
     const country = resolveCountry(plane);
     const srcLabel = plane.sim ? '模拟数据' : (plane.source || '未知来源');
     cSource.textContent = country.source === 'hexblock' ? `${srcLabel} · 国别按地址块推断` : srcLabel;
-    cAge.textContent = plane.obsAt ? agoText(plane.obsAt, now) : '实时';
+    // 观测时刻用墙钟：obsAt 是 Date.now()（epoch），而 ctx.now 是 rAF 时间戳，
+    // 两者相减是巨大负数，会被 agoText 钳成 0 —— 「最后更新」就永远显示「刚刚」。
+    cAge.textContent = plane.obsAt ? agoText(plane.obsAt) : '实时';
   }
 
   function setFollowVisible(on) {

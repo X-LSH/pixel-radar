@@ -16,6 +16,8 @@
 const DRAG_THRESHOLD = 4;
 /** 双击判定窗口（毫秒） */
 const DBL_MS = 320;
+/** 触摸长按判定（毫秒）：与右键同等效力，触摸屏上没有右键可按 */
+const HOLD_MS = 550;
 
 export function bindInputs({ canvas, stage, actions, isPickerOpen }) {
   let dragging = false;
@@ -27,6 +29,12 @@ export function bindInputs({ canvas, stage, actions, isPickerOpen }) {
   let moved = 0;
   let lastTapAt = 0;
   let lastTapHex = null;
+  let holdTimer = 0;
+  let longPressed = false;
+
+  const clearHold = () => {
+    if (holdTimer) { clearTimeout(holdTimer); holdTimer = 0; }
+  };
 
   /** 客户端坐标 → 逻辑画布坐标 */
   function toLogical(clientX, clientY) {
@@ -47,13 +55,25 @@ export function bindInputs({ canvas, stage, actions, isPickerOpen }) {
     downX = e.clientX;
     downY = e.clientY;
     moved = 0;
+    longPressed = false;
+    clearHold();
+    // 触摸没有右键，长按（不动、不放）作为等价手势
+    if (e.pointerType === 'touch') {
+      holdTimer = setTimeout(() => {
+        holdTimer = 0;
+        longPressed = true;
+        actions.setFollow(null);
+        actions.setSelected(null);
+      }, HOLD_MS);
+    }
     canvas.setPointerCapture(e.pointerId);
     canvas.style.cursor = 'grabbing';
   });
 
   canvas.addEventListener('pointermove', (e) => {
-    const { x, y } = toLogical(e.clientX, e.clientY);
-
+    // 先判拖拽再换算坐标：拖拽分支根本用不到逻辑坐标，
+    // 每个 move 事件都读一次 getBoundingClientRect 会强制同步布局，
+    // 而此刻侧栏刚被状态栏的 500ms 定时刷新弄脏了布局。
     if (dragging && e.pointerId === pointerId) {
       const dx = e.clientX - lastX;
       const dy = e.clientY - lastY;
@@ -61,6 +81,7 @@ export function bindInputs({ canvas, stage, actions, isPickerOpen }) {
       lastY = e.clientY;
       moved += Math.abs(dx) + Math.abs(dy);
       if (moved > DRAG_THRESHOLD) {
+        clearHold(); // 在移动就不是长按
         // 拖拽时取消跟随，否则镜头会被拉回去，手感很怪
         if (actions.getFollow()) actions.setFollow(null);
         const { scale } = stage.resolution;
@@ -69,6 +90,7 @@ export function bindInputs({ canvas, stage, actions, isPickerOpen }) {
       return;
     }
 
+    const { x, y } = toLogical(e.clientX, e.clientY);
     actions.hover(x, y, e.clientX, e.clientY);
   });
 
@@ -76,7 +98,14 @@ export function bindInputs({ canvas, stage, actions, isPickerOpen }) {
     if (!dragging || e.pointerId !== pointerId) return;
     dragging = false;
     pointerId = null;
+    clearHold();
     canvas.style.cursor = '';
+    if (longPressed) {
+      // 长按已经完成「取消跟随并取消选中」，抬手时不要再当成点选
+      // —— 否则会立刻又选中一架，手势等于没生效。
+      longPressed = false;
+      return;
+    }
     if (moved <= DRAG_THRESHOLD) {
       const now = performance.now();
       const item = actions.pickAtClient(e.clientX, e.clientY);
@@ -98,6 +127,8 @@ export function bindInputs({ canvas, stage, actions, isPickerOpen }) {
   canvas.addEventListener('pointercancel', (e) => {
     dragging = false;
     pointerId = null;
+    clearHold();
+    longPressed = false;
     canvas.style.cursor = '';
   });
 
