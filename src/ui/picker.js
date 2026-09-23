@@ -37,12 +37,30 @@ const REGION_BY_PREFIX = {
 
 const REGION_ORDER = ['中国内地', '中国港澳', '日本 · 韩国', '东南亚', '中东', '欧洲', '美国', '大洋洲', '其它'];
 
+/* ----------------------------------------------------------------
+ * Intl.DateTimeFormat 缓存
+ *
+ * 构造 formatter 要做 ICU 数据查找，是出了名的贵；而选择器列表**每次按键
+ * 都会重建**，20 个机场各要本地时间 + UTC 偏移两个 —— 不缓存的话，
+ * 一次退格就是 40 次 formatter 构造，打字会有可感知的卡顿。
+ * timeZone 是构造期参数，所以按 tz 各缓存一份（全表约 20 个）。
+ * ---------------------------------------------------------------- */
+const fmtHourCache = new Map();
+const fmtTimeCache = new Map();
+const fmtOffsetCache = new Map();
+
+function cachedFmt(cache, tz, factory) {
+  let f = cache.get(tz);
+  if (!f) { f = factory(); cache.set(tz, f); }
+  return f;
+}
+
 /** 取某时区当前的本地小时（含小数，用于细腻排序） */
 function localHour(tz, date) {
   try {
-    const parts = new Intl.DateTimeFormat('en-GB', {
+    const parts = cachedFmt(fmtHourCache, tz, () => new Intl.DateTimeFormat('en-GB', {
       timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false,
-    }).formatToParts(date);
+    })).formatToParts(date);
     const h = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
     const m = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
     return h + m / 60;
@@ -54,9 +72,9 @@ function localHour(tz, date) {
 /** 某时区当前本地时间字符串 */
 export function localTimeText(tz, date = new Date()) {
   try {
-    return new Intl.DateTimeFormat('zh-CN', {
+    return cachedFmt(fmtTimeCache, tz, () => new Intl.DateTimeFormat('zh-CN', {
       timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false,
-    }).format(date);
+    })).format(date);
   } catch {
     return '--:--';
   }
@@ -65,8 +83,9 @@ export function localTimeText(tz, date = new Date()) {
 /** UTC 偏移文本（DST 感知） */
 export function utcOffsetText(tz, date = new Date()) {
   try {
-    const s = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'shortOffset' })
-      .formatToParts(date).find((p) => p.type === 'timeZoneName')?.value || '';
+    const s = cachedFmt(fmtOffsetCache, tz, () => new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, timeZoneName: 'shortOffset',
+    })).formatToParts(date).find((p) => p.type === 'timeZoneName')?.value || '';
     return s.replace('GMT', 'UTC');
   } catch {
     return '';

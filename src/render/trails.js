@@ -34,6 +34,13 @@ export function drawTrails(ctx, frame, proj, opts = {}) {
   if (opts.enabled === false) return;
   if (frame.length > (opts.maxPlanes || 320)) return;
 
+  // 视口边界（未提供时不限制，行为与从前完全一致）
+  const vw = Number.isFinite(opts.w) ? opts.w : Infinity;
+  const vh = Number.isFinite(opts.h) ? opts.h : Infinity;
+  // 屏外剔除的余量：屏幕上的尾迹最长 20 逻辑像素（TRAIL.maxLen），
+  // 最新点离视口还有 24px 就整条都看不见，后面 20 个投影点纯属白算。
+  const M = 24;
+
   ctx.save();
   ctx.lineWidth = 1;
   ctx.lineCap = 'butt';
@@ -47,20 +54,19 @@ export function drawTrails(ctx, frame, proj, opts = {}) {
     const maxLen = trailLengthFor(item.plane.gsKt || 0);
     if (maxLen < 1) continue;
 
-    // 先把需要的那一段投影成像素，倒序走
-    let budget = maxLen;
-    let px = null; // 当前点
-    let py = null;
+    // 先投影最新点做视口剔除 —— 这是屏幕外目标的快速出口
+    const lastNode = trail[trail.length - 1];
+    const last = proj.toPixel(lastNode.lat, lastNode.lon);
+    if (last.x < -M || last.y < -M || last.x > vw + M || last.y > vh + M) continue;
 
-    for (let i = trail.length - 1; i >= 0; i--) {
+    // 从尾部倒着走，当前段的另一端就是上一次投影的点
+    let budget = maxLen;
+    let px = last.x;
+    let py = last.y;
+
+    for (let i = trail.length - 2; i >= 0; i--) {
       const node = trail[i];
       const p = proj.toPixel(node.lat, node.lon);
-
-      if (px === null) {
-        px = p.x;
-        py = p.y;
-        continue;
-      }
 
       const segPx = Math.hypot(p.x - px, p.y - py);
       if (segPx <= 0.01) {

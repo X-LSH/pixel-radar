@@ -17,6 +17,15 @@ const PERSISTED = [
   'crt', 'scanlines', 'vignette', 'noise', 'sweepOn', 'trailsOn', 'labelsOn',
   'relayUrl',
 ];
+const PERSISTED_SET = new Set(PERSISTED);
+
+/**
+ * 落盘合并窗口。
+ * `localStorage.setItem` 是同步调用，而滚轮缩放一次手势就能产生几十个
+ * `set()`（每次都「有变更」），连发会把主线程卡在存储 IO 上。
+ * 改为：250ms 内的变更合并成一次写入，页面隐藏时立刻冲刷，关页前不丢设置。
+ */
+const PERSIST_DEBOUNCE_MS = 250;
 
 function loadPersisted() {
   try {
@@ -45,6 +54,7 @@ function savePersisted(state) {
 
 export function createStore() {
   const listeners = new Set();
+  let saveTimer = 0;
 
   const state = {
     ...DEFAULTS,
@@ -92,7 +102,9 @@ export function createStore() {
       }
     }
     if (changed.length || opts.force) {
-      if (!opts.silent) savePersisted(state);
+      // 只有可持久化的键变了才排期落盘：paused / selectedHex 这类会话态
+      // 每秒都在变，不该连带触发一次对内容毫无变化的写入。
+      if (!opts.silent && changed.some((k) => PERSISTED_SET.has(k))) schedulePersist();
       for (const fn of listeners) {
         try {
           fn(state, changed);
@@ -105,9 +117,41 @@ export function createStore() {
     return changed;
   }
 
+  /** 合并写入：把窗口内的多次变更压成一次 localStorage 写 */
+  function schedulePersist() {
+    if (saveTimer) return;
+    saveTimer = setTimeout(() => {
+      saveTimer = 0;
+      savePersisted(state);
+    }, PERSIST_DEBOUNCE_MS);
+  }
+
+  /** 立即落盘（页面隐藏 / 关闭前调用，保证设置不丢） */
+  function flushPersisted() {
+    if (!saveTimer) return;
+    clearTimeout(saveTimer);
+    saveTimer = 0;
+    savePersisted(state);
+  }
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', flushPersisted);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) flushPersisted();
+    });
+  }
+
   /** 深层局部更新（仅用于 feed 与 stats 这类嵌套结构） */
   function patch(key, sub) {
-    const prev = state[key];
+    const prev = state[key] || {};
+    // 无实质变化就不广播：resolution 每次 resize 都会带一个新对象进来，
+    // stats 每 500ms 一份新对象，多数时候数值完全没动。
+    let dirty = false;
+    for (const k of Object.keys(sub)) {
+      if (!Object.is(prev[k], sub[k])) { dirty = true; break; }
+    }
+    if (!dirty) return;
+
     state[key] = { ...prev, ...sub };
     for (const fn of listeners) {
       try {
@@ -130,5 +174,5 @@ export function createStore() {
     set(patchObj);
   }
 
-  return { get, set, patch, subscribe, resetSettings, PERSISTED };
+  return { get, set, patch, subscribe, resetSettings, flushPersisted, PERSISTED };
 }
