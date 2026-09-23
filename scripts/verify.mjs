@@ -786,6 +786,54 @@ group('产物与工程约束');
 }
 
 /* ══════════════════════════════════════════════════════════════
+ * 14) 渲染护栏（目标硬上限与尾迹视口剔除）
+ * ══════════════════════════════════════════════════════════════ */
+group('渲染护栏（硬上限剔除 · 尾迹视口剔除）');
+{
+  const { cullByDistance } = await load('src/render/planes.js');
+  const { drawTrails } = await load('src/render/trails.js');
+
+  const P = new Projection(40.0773, 116.5967);
+  P.setView(240, 180, 0.5); // 0.5 km/px → 480×360 视口
+
+  // ── config.js 承诺的 hardCutoff 护栏必须真的存在 ──
+  const few = Array.from({ length: 10 }, (_, i) => ({ hex: `f${i}`, lat: 40 + i * 0.01, lon: 116 }));
+  ok('未超限时不裁剪（返回原数组引用，热路径零分配）',
+    cullByDistance(few, P, PERF.hardCutoff) === few);
+
+  const many = Array.from({ length: PERF.hardCutoff + 100 }, (_, i) => ({
+    hex: `h${i}`,
+    lat: 40.0773 + (i - 300) * 0.05, // h300 正落在机场，两端最远
+    lon: 116.5967,
+  }));
+  const cut = cullByDistance(many, P, PERF.hardCutoff);
+  ok('超限裁剪到硬上限', cut.length === PERF.hardCutoff, `${cut.length} / ${many.length}`);
+  const kept = new Set(cut.map((f) => f.hex));
+  ok('裁剪保留离机场最近的目标、剔除最远的',
+    kept.has('h300') && !kept.has('h0') && !kept.has(`h${many.length - 1}`),
+    kept.has('h300') ? '近处保留' : '近处被误剔');
+
+  // ── 尾迹的视口剔除：屏外目标不该产生任何描边 ──
+  let strokes = 0;
+  const ctx = {
+    canvas: { width: 480, height: 360 },
+    save() {}, restore() {}, beginPath() {}, moveTo() {}, lineTo() {},
+    stroke() { strokes++; },
+  };
+  const item = (lat, lon) => ({
+    plane: { onGround: false, gsKt: 450, altFt: 35000 },
+    trail: [{ lat, lon, alt: 35000 }, { lat: lat + 0.004, lon, alt: 35000 }],
+  });
+  const trailOpts = { enabled: true, maxPlanes: PERF.trailCutoff, w: 480, h: 360 };
+
+  drawTrails(ctx, [item(60, 130)], P, trailOpts);   // 距视口十万八千里
+  const offStrokes = strokes;
+  drawTrails(ctx, [item(40.0773, 116.5967)], P, trailOpts); // 正在视口中心
+  ok('屏外目标不绘制尾迹（不为看不见的段做投影）', offStrokes === 0, `${offStrokes} 条描边`);
+  ok('屏内目标照常绘制尾迹', strokes > offStrokes, `${strokes - offStrokes} 条描边`);
+}
+
+/* ══════════════════════════════════════════════════════════════
  * 汇总
  * ══════════════════════════════════════════════════════════════ */
 console.log(`\n${'═'.repeat(58)}`);
