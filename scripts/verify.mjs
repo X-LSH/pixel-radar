@@ -869,7 +869,7 @@ group('快照源链路（镜像竞速与判死）');
       ok('已知仓库时不请求同源快照（线上零 404）',
         !urls.some((u) => !/^https?:/.test(u)), urls.filter((u) => !/^https?:/.test(u)).join(','));
       const hosts = SOURCES.mirrorTemplates.length;
-      ok('三个镜像域名全部发起竞速',
+      ok('全部镜像域名发起竞速',
         urls.length === hosts
         && urls.some((u) => u.includes('raw.githubusercontent.com'))
         && urls.some((u) => u.includes('cdn.jsdelivr.net'))
@@ -915,7 +915,7 @@ group('快照源链路（镜像竞速与判死）');
       try { await src(() => ({ repo: '', branch: 'data' })).run(ctx); } catch (e) { threw = e; }
       ok('全 404 时报 FetchError 而非挂起', threw && threw.name === 'FetchError', threw ? threw.name : '未抛错');
       const dead = mod.deadSnapshotPaths();
-      ok('三个镜像 URL 全部判死', dead.urls.length === SOURCES.mirrorTemplates.length,
+      ok('全部镜像 URL 判死（无漏网候选）', dead.urls.length === SOURCES.mirrorTemplates.length,
         `dead=${dead.urls.length}`);
       ok('同源目录判死（后续周期不再请求）', dead.dirs.includes(SOURCES.snapshotDir),
         dead.dirs.join(',') || '未判死');
@@ -966,6 +966,21 @@ group('快照源链路（镜像竞速与判死）');
       ok('窗口内等到更优结果（择优而非先到先赢）',
         r && r.fetchedAt === now - 15 * 60e3 && Date.now() - t0 < 2000,
         r ? `选中 ${Math.round((now - r.fetchedAt) / 60000)}min 前 · ${Date.now() - t0}ms` : '失败');
+    }
+    /* 用例 8：慢网防线（5s RTT 复现探针的回归锁）——超时放宽 / 镜像扩容 / 阶梯重试 */
+    {
+      ok('镜像扩容到 5 个（jsDelivr 三边缘 = 独立故障域）',
+        SOURCES.mirrorTemplates.length === 5
+        && SOURCES.mirrorTemplates.some((u) => u.includes('fastly.jsdelivr.net'))
+        && SOURCES.mirrorTemplates.some((u) => u.includes('gcore.jsdelivr.net')),
+        `n=${SOURCES.mirrorTemplates.length}`);
+      ok('单候选超时 ≥8s（直连尾部延迟 7.9s 不再被掐死）',
+        SOURCES.snapshotTimeoutMs >= 8000, `${SOURCES.snapshotTimeoutMs}ms`);
+      const pipeSrc = await readFile(resolve(ROOT, 'src/data/pipeline.js'), 'utf8');
+      ok('模拟态重试阶梯（5s 起步、60s 封顶）常量在位',
+        /CHAIN_RETRY_INITIAL_MS = 5000/.test(pipeSrc) && /CHAIN_RETRY_MAX_MS = 60000/.test(pipeSrc), '');
+      ok('恢复路径不再在 pullOnce 成功后清空真实轨迹',
+        !/await pullOnce\(ctx\);\s*\r?\n\s*tracker\.reset\(\)/.test(pipeSrc), '');
     }
   } finally {
     globalThis.fetch = origFetch;
