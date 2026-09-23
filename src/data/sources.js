@@ -116,25 +116,26 @@ export function relaySource(getUrl) {
 
 /**
  * 静态快照。
- * 优先同源（本地 collect.mjs 产出 / 未来若提交到站点目录），
- * 再退到 raw.githubusercontent.com 直读 data 分支
- * —— 后者带 `Access-Control-Allow-Origin: *` 且缓存 5 分钟，
- * 与快照产出节奏吻合。
+ *
+ * 取数策略（2026-09 重写，原因见下）：
+ *   1. **多镜像并行竞速**：raw / jsDelivr / ghproxy 三个模板同时请求，
+ *      先返回且足够新鲜（< snapshotFreshMs）的结果直接胜出；
+ *      全部返回后仍未分出胜负，则取 fetchedAt 最新的一份。
+ *   2. **仓库名推断不出时**（localhost 等），镜像用 fallbackRepo，
+ *      同源快照一并参与竞速 —— 本地刚 collect 出的新鲜文件应当赢，
+ *      6 天前的本地残留不应当赢（fetchedAt 比较天然解决）。
+ *   3. **仓库名已知时**（GitHub Pages）不请求同源：线上必然 404，
+ *      省掉每次加载一条控制台报错。
+ *
+ * 为什么从「先同源、再单个 raw 镜像」改成这样，两条实测教训：
+ *   · raw.githubusercontent.com 在部分网络整体不可达 —— 单镜像 = 快照
+ *     链路整体瘫痪 = 前端永远显示「模拟数据」（用户报的核心故障）；
+ *   · 本地 data/snapshots 被 .gitignore 忽略，全新 clone 的同源路径
+ *     必然 404，且旧代码在本地**不尝试镜像** —— 本地开发 100% 落模拟。
  */
 /**
- * 已知不存在的快照路径与目录前缀。
- *
- * 为什么需要：降级链会先试同源路径（本地开发时确实存在），再退到 raw 镜像。
- * 线上站点没有同源快照，于是每次都撞一个 404 —— 既在浏览器控制台刷出报错，
- * 又白费一次请求。
- *
- * 两个设计要点，都是实测踩出来的：
- *  1. 放在**模块级**而不是 source 实例里：换机场 / 改配置 / 模拟态重试都会
- *     重建整条源链，「某路径不存在」是站点属性，不是某次探测的暂态。
- *  2. 按**目录前缀**记，而不是按单个 URL：实际的事实是「这个站点没有同源快照
- *     目录」，而不是「ZBAA 那个文件不在」。按单 URL 记的话，每换一个机场
- *     仍会各撞一次 404（线上实测恰好剩 2 条，就是 ZBAA + KJFK 各一次）。
- *
+ * 已知不存在的快照路径与目录前缀（模块级：换机场 / 重建源链后
+ * 「某 URL 404」依然成立，不该每个周期重复撞一次）。
  * 只记 404（路径不存在）；网络错误与超时属暂态，仍照常重试。
  */
 const deadSnapshotUrls = new Set();
@@ -149,54 +150,86 @@ export function snapshotSource(getConfig) {
     available: () => true,
     async run(ctx, signal) {
       const cfg = getConfig();
+      const repo = cfg.repo || '';
+      const branch = cfg.branch || 'data';
       const sameOrigin = `${SOURCES.snapshotDir}/${ctx.icao}.json`;
-      const mirror = cfg.repo
-        ? SOURCES.rawTemplate
-          .replace('{repo}', cfg.repo)
-          .replace('{branch}', cfg.branch || 'data')
-          .replace('{icao}', ctx.icao)
-        : null;
+      const build = (tpl) => tpl
+        .replace('{repo}', repo || SOURCES.fallbackRepo)
+        .replace('{branch}', branch)
+        .replace('{icao}', ctx.icao);
 
-      /**
-       * 顺序是刻意的：**有镜像时先走镜像**。
-       *
-       * 推断出仓库名意味着当前就在 GitHub Pages 上，而线上站点必然没有同源快照
-       * （快照只存在于 data 分支），此时镜像才是权威源。
-       * 若仍先试同源，就注定要为每个机场白撞一次 404 —— 那一条报错无法通过
-       * 「记住失败」消除，因为不试一次就不知道它不存在。
-       *
-       * 本地开发时 detectRepo() 返回空串，repo 为 null，于是只走同源路径，
-       * 行为与之前完全一致，也不会多出任何请求。
-       */
-      const candidates = [];
-      if (mirror && !deadSnapshotUrls.has(mirror)) candidates.push({ url: mirror, isMirror: true });
-      if (!deadSnapshotDirs.has(SOURCES.snapshotDir)) candidates.push({ url: sameOrigin, isMirror: false });
-
+      const candidates = SOURCES.mirrorTemplates
+        .map(build)
+        .filter((url) => !deadSnapshotUrls.has(url))
+        .map((url) => ({ url, isMirror: true }));
+      if ((!repo || !candidates.length) && !deadSnapshotDirs.has(SOURCES.snapshotDir)) {
+        candidates.push({ url: sameOrigin, isMirror: false });
+      }
       if (!candidates.length) {
         throw new FetchError('同源路径与镜像均无可用快照', 'notfound');
       }
 
-      let lastErr = null;
-      for (const { url, isMirror } of candidates) {
-        try {
-          const json = await fetchJson(url, { signal, timeoutMs: 8000 });
-          const records = extractRecords(json);
-          const fetchedAt = Number(json.fetchedAt) || Date.now();
-          return {
-            records,
-            sourceId: `${json.source || 'snapshot'}${json.radiusNm ? ` · ${json.radiusNm}nm` : ''}`,
-            fetchedAt,
-            note: isMirror ? '快照 · data 分支' : '快照 · 同源',
-          };
-        } catch (e) {
+      /** 统一打包返回值（成功候选的收口，早退与全量择优共用） */
+      const pack = (win) => {
+        const json = win.json;
+        return {
+          records: extractRecords(json),
+          sourceId: `${json.source || 'snapshot'}${json.radiusNm ? ` · ${json.radiusNm}nm` : ''}`,
+          fetchedAt: Number(json.fetchedAt) || Date.now(),
+          note: win.isMirror ? '快照 · data 分支' : '快照 · 同源',
+        };
+      };
+
+      /**
+       * 并行发出，三层收口：
+       *  · 结果足够新鲜（< snapshotFreshMs）→ 立即胜出，不等更慢的候选；
+       *  · 首个成功到达 → 再开一个 snapshotGraceMs 的择优窗口，让慢镜像
+       *    赶到后按 fetchedAt 择优，窗口到点取当前最优收口；
+       *  · 全部 settle（窗口未开时）→ 直接择优。
+       * 404 记入判死集合（镜像按 URL、同源按目录），下个周期不再请求。
+       */
+      return await new Promise((resolveRun, rejectRun) => {
+        let pending = candidates.length;
+        let best = null;
+        let lastErr = null;
+        let done = false;
+        let graceTimer = 0;
+
+        const markDead = (c, e) => {
           if (e instanceof FetchError && e.kind === 'http' && /HTTP 404/.test(e.message)) {
-            if (isMirror) deadSnapshotUrls.add(url);
+            if (c.isMirror) deadSnapshotUrls.add(c.url);
             else deadSnapshotDirs.add(SOURCES.snapshotDir);
           }
-          lastErr = e;
+        };
+
+        const finish = () => {
+          if (done) return;
+          done = true;
+          clearTimeout(graceTimer);
+          if (best) resolveRun(pack(best));
+          else rejectRun(lastErr || new FetchError('无可用快照', 'notfound'));
+        };
+
+        const settle = (c, json, err) => {
+          if (done) return;
+          if (err) {
+            markDead(c, err);
+            lastErr = err;
+          } else {
+            const fa = Number(json.fetchedAt) || 0;
+            if (!best || fa > best.fa) best = { json, isMirror: c.isMirror, fa };
+            if (best.fa && Date.now() - best.fa <= SOURCES.snapshotFreshMs) return finish(); // 足够新鲜，先到先得
+            if (!graceTimer) graceTimer = setTimeout(finish, SOURCES.snapshotGraceMs); // 首响开窗择优
+          }
+          if (--pending === 0) finish();
+        };
+
+        for (const c of candidates) {
+          fetchJson(c.url, { signal, timeoutMs: SOURCES.snapshotTimeoutMs })
+            .then((json) => settle(c, json, null))
+            .catch((e) => settle(c, null, e));
         }
-      }
-      throw lastErr || new FetchError('无可用快照', 'notfound');
+      });
     },
   };
 }

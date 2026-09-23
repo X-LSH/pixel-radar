@@ -171,8 +171,39 @@ export const SOURCES = {
   },
   /** 同源静态快照目录（由 scripts/collect.mjs 或 Actions 生成） */
   snapshotDir: 'data/snapshots',
-  /** 快照直读镜像模板：{repo} 与 {branch} 由构建期注入 */
-  rawTemplate: 'https://raw.githubusercontent.com/{repo}/{branch}/data/snapshots/{icao}.json',
+  /**
+   * 快照镜像模板（并行竞速，谁先成功用谁）：{repo} 与 {branch} 运行时注入。
+   *
+   * 为什么是三个而不是一个：`raw.githubusercontent.com` 在部分网络
+   * 环境（尤其中国大陆）不可达，一旦它挂起，唯一镜像就意味着
+   * 「快照链路整体不可达 → 永远落模拟数据」。三个候选全部带
+   * `Access-Control-Allow-Origin: *`，域名特性互补：
+   *   · raw            —— 官方、缓存 5 分钟，与采集节奏吻合（首选）
+   *   · cdn.jsdelivr   —— 全球 CDN，国内通常可达
+   *   · ghproxy.net    —— raw 的反代，raw 被墙时的兜底
+   */
+  mirrorTemplates: [
+    'https://raw.githubusercontent.com/{repo}/{branch}/data/snapshots/{icao}.json',
+    'https://cdn.jsdelivr.net/gh/{repo}@{branch}/data/snapshots/{icao}.json',
+    'https://ghproxy.net/https://raw.githubusercontent.com/{repo}/{branch}/data/snapshots/{icao}.json',
+  ],
+  /**
+   * 仓库名推断失败（localhost / 自定义静态托管）时的兜底仓库。
+   * 没有它，本地开发只有一条「同源快照」路 —— 而 data/snapshots 被
+   * .gitignore 忽略，全新 clone 必然 404 → 100% 落到模拟数据。
+   */
+  fallbackRepo: 'X-LSH/pixel-radar',
+  /** 单个快照候选的超时：必须明显小于启动预算 6s，被墙的候选不能拖死启动 */
+  snapshotTimeoutMs: 4000,
+  /** 快照年龄小于该值即「足够新鲜」，先到先得，不必等更慢的候选 */
+  snapshotFreshMs: 10 * 60 * 1000,
+  /**
+   * 首个成功响应回来后，再等这么久才收口择优。
+   * 不设窗口 → 谁快谁赢，3 小时前的残留可能压过 10 分钟前的正主；
+   * 无限等全量 → 最慢的镜像（ghproxy 数秒）会把整条链拖过启动预算
+   * 与 e2e 的切换等待窗。600ms 足够让其余镜像（通常 <300ms）赶到。
+   */
+  snapshotGraceMs: 600,
   /** 元数据源（实测支持 CORS，可浏览器直连） */
   meta: {
     route: (cs) => `https://api.adsbdb.com/v0/callsign/${encodeURIComponent(cs)}`,
