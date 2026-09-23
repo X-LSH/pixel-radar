@@ -8,7 +8,7 @@
 **零后端 · 零构建 · 零依赖 · 零密钥。** 源码直接放仓库根目录即上线。
 
 > 打开就有一片真实空域（默认北京首都）。数据由 GitHub Actions 定时采集写入
-> `data` 分支，前端并行竞速读取三个镜像 —— **定时任务会被 GitHub 大量丢弃**
+> `data` 分支，前端并行竞速读取五个镜像 —— **定时任务会被 GitHub 大量丢弃**
 > （实测 `*/5` 六天只触发 41 次，已加错峰 cron 缓解），页面状态栏始终显示
 > 快照的实际年龄（如「更新 14 分前」），陈旧从不被隐藏。
 
@@ -29,7 +29,7 @@ node scripts/collect.mjs --watch=300   # 常驻，每 5 分钟刷新，本地也
 
 | 命令 | 作用 |
 |---|---|
-| `npm run verify` | 不变量自检（204 项，纯逻辑，不开浏览器） |
+| `npm run verify` | 不变量自检（208 项，纯逻辑，不开浏览器） |
 | `npm run e2e` | 真实 Chrome 端到端验证（40 项，含真实鼠标/键盘事件 + 截图） |
 | `BASE=<url> REQUIRE_REAL=1 npm run e2e` | 对线上地址验证，并**强制要求数据是真实的**（拒绝模拟兜底；43 项） |
 | `npm run build:data` | 重建机场 / 跑道 / 海岸线 / 建成区数据（需联网，上游原件会缓存到 `.tmp/raw/`） |
@@ -69,13 +69,17 @@ node scripts/collect.mjs --watch=300   # 常驻，每 5 分钟刷新，本地也
 ```
 
 **静态快照是默认通路。** `scripts/collect.mjs` 在服务端（Node / GitHub Actions
-的 runner 没有同源策略限制）定期取数并落成静态 JSON，前端**并行竞速**读取三份镜像：
+的 runner 没有同源策略限制）定期取数并落成静态 JSON，前端**并行竞速**读取五份镜像：
 
 - `raw.githubusercontent.com` —— 官方直读，带 `ACAO: *`、缓存 5 分钟，与采集节奏吻合；
-- `cdn.jsdelivr.net` / `ghproxy.net` —— 国内可达的备援（raw 被墙时的救命通道）。
+- `cdn.jsdelivr.net` / `fastly.jsdelivr.net` / `gcore.jsdelivr.net` —— jsDelivr 的
+  三个独立边缘（国内实测可达，单边缘被墙不致链路整体不可达）；
+- `ghproxy.net` —— raw 的反代（GitHub 直连被墙时的兜底）。
 
+单候选超时 8s（盖住直连 0.7~7.9s 的尾部抖动，避免「慢而活」的候选被掐死）；
 首个响应回来后再等 600ms 择优窗口，按 `fetchedAt` 取最新的一份；404 的候选会被
-判死、后续周期不再请求。仓库名由 `location` 运行时推断，推断不出（localhost 等）
+判死、后续周期不再请求。全部候选失败则回落模拟并按 5→10→20→40→60s 阶梯自动重试，
+任一轮成功即切回真实数据。仓库名由 `location` 运行时推断，推断不出（localhost 等）
 时用内置 `fallbackRepo` 直读同一 `data` 分支 —— **本地开发零配置即有真实数据**，
 本地 `data/snapshots` 若更新鲜则优先采用。这样绕开了 CORS，保住了「零后端」。
 
