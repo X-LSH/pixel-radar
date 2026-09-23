@@ -114,6 +114,13 @@ async function main() {
   const pending = new Map();
   const consoleErrors = [];
   const pageErrors = [];
+  /**
+   * 放行「传输层瞬时抖动」：快照镜像是**并行竞速**的候选，其中一条连接
+   * 被瞬时重置/中止属于设计内（谁先成功用谁，失败方仅记入判死集合），
+   * 浏览器仍会把它记成一条资源加载错误。只放行这一类确切的网络错误码；
+   * 本地资源 404、CORS 拦截与任何 console.error 依旧一律判失败。
+   */
+  const TRANSPORT_FLAKY = /^Failed to load resource: net::ERR_(CONNECTION_ABORTED|CONNECTION_RESET|CONNECTION_CLOSED|TIMED_OUT|NETWORK_CHANGED)$/;
 
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
@@ -122,11 +129,13 @@ async function main() {
       const d = m.params.exceptionDetails;
       pageErrors.push(d?.exception?.description || d?.text || 'unknown exception');
     }
-    if (m.method === 'Log.entryAdded' && m.params.entry.level === 'error') {
+    if (m.method === 'Log.entryAdded' && m.params.entry.level === 'error'
+      && !TRANSPORT_FLAKY.test(m.params.entry.text || '')) {
       consoleErrors.push(m.params.entry.text);
     }
     if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') {
-      consoleErrors.push(m.params.args.map((a) => a.value ?? a.description ?? '').join(' '));
+      const text = m.params.args.map((a) => a.value ?? a.description ?? '').join(' ');
+      if (!TRANSPORT_FLAKY.test(text)) consoleErrors.push(text);
     }
   };
 
@@ -274,7 +283,17 @@ async function main() {
   check('扫描角归一在 [0,360)', a1 >= 0 && a1 < 360, `${a1.toFixed(1)}°`);
 
   /* ── 4. 真实点击命中目标 ── */
-  const targetPos = await evaluate('window.__PIXEL_RADAR__.firstVisibleTarget()');
+  let targetPos = await evaluate('window.__PIXEL_RADAR__.firstVisibleTarget()');
+  if (!targetPos) {
+    /**
+     * 快照半径 50nm 远大于默认档位的可视半径（约 ±24~33km），
+     * 目标分布是活的 —— 偶尔会全部落在屏外。先退一档扩大视口再取，
+     * 仍然取不到才判定失败（那是真的「雷达屏上无目标可点」）。
+     */
+    await evaluate('window.__PIXEL_RADAR__.zoomBy(-1)');
+    await sleep(350);
+    targetPos = await evaluate('window.__PIXEL_RADAR__.firstVisibleTarget()');
+  }
   check('屏内存在可点击目标', !!targetPos,
     targetPos ? `${targetPos.callsign} @ ${Math.round(targetPos.x)},${Math.round(targetPos.y)}` : '无目标落在视口内');
 
@@ -288,7 +307,13 @@ async function main() {
   check('尾迹点数未失控（< 20000）', trailPts < 20000, `${trailPts}`);
 
   if (targetPos) {
-    await click(targetPos.x, targetPos.y);
+    /**
+     * 点击前重新取一次坐标：上面等了 13 秒（尾迹采样），
+     * 飞机按地速早就飞出十几像素 —— 用陈旧坐标点击必然脱靶。
+     * 本地旧快照位置近乎冻结，脱靶被侥幸掩盖；线上数据一刷新就暴露。
+     */
+    const clickPos = await evaluate('window.__PIXEL_RADAR__.firstVisibleTarget()') || targetPos;
+    await click(clickPos.x, clickPos.y);
     const card = await evaluate(`({
       visible: !document.getElementById('cardBody').hidden,
       callsign: document.getElementById('cCallsign').textContent,
@@ -297,8 +322,8 @@ async function main() {
       airline: document.getElementById('cAirline').textContent,
     })`);
     check('点击后信息卡弹出', card.visible, JSON.stringify(card));
-    check('信息卡呼号与点击目标一致', card.callsign === targetPos.callsign,
-      `期望 ${targetPos.callsign}，实得 ${card.callsign}`);
+    check('信息卡呼号与点击目标一致', card.callsign === clickPos.callsign,
+      `期望 ${clickPos.callsign}，实得 ${card.callsign}`);
     check('信息卡字段数符合规格（11 行）', card.rows === 11, `${card.rows} 行`);
     check('信息卡显示承运人与阶段', !!card.phase && !!card.airline, `${card.phase} / ${card.airline}`);
     await shot('02-infocard');
