@@ -66,7 +66,9 @@ const RETRY_DELAY_MS = 30000;
 /** 上游聚合源；按顺序尝试，第一个出数据的即用 */
 const UPSTREAMS = [
   { id: 'adsb.lol', url: (lat, lon, nm) => `https://api.adsb.lol/v2/point/${lat.toFixed(4)}/${lon.toFixed(4)}/${nm}` },
-  { id: 'airplanes.live', url: (lat, lon, nm) => `https://api.airplanes.live/v2/point/${lat.toFixed(4)}/${lon.toFixed(4)}/${nm}` },
+  // airplanes.live 已筑注册墙（未报备客户端恒 403、单次拖 12.8s）——由 adsb.fi 顶替：
+  // 免注册、服务端采集无 CORS 约束，实测北京/成都等大陆航点有真实覆盖。
+  { id: 'adsb.fi', url: (lat, lon, nm) => `https://opendata.adsb.fi/api/v2/lat/${lat.toFixed(4)}/lon/${lon.toFixed(4)}/dist/${nm}` },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -92,17 +94,14 @@ async function fetchOne(ap, up) {
       clearTimeout(timer);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
-      if (!Array.isArray(json.ac)) throw new Error('响应结构异常：缺少 ac 数组');
-      return { ac: json.ac, total: json.total ?? json.ac.length };
+      // adsb.lol 回 `ac`，adsb.fi 回 `aircraft` —— 两种都收（前端 extractRecords 同样兼容）
+      const recs = Array.isArray(json.ac) ? json.ac
+        : Array.isArray(json.aircraft) ? json.aircraft : null;
+      if (!recs) throw new Error('响应结构异常：缺少 ac/aircraft 数组');
+      return { ac: recs, total: json.total ?? recs.length };
     } catch (e) {
       lastErr = e;
-      /**
-       * airplanes.live 的 403 是「未报备客户端」的准入拒绝，不是限流 ——
-       * 重试只会白烧几十秒退避（5s→10s→20s），所以见到 403 立即放弃该上游。
-       * adsb.lol 的 403 则是限流的硬形态，仍按退避重试。
-       */
-      if (up.id === 'airplanes.live' && /\b403\b/.test(e.message)) break;
-      // 403 / 429 是明确的限流信号，退避要更狠
+      // 403 / 429 是明确的限流信号，退避要更狠（adsb.lol 的 403 即限流硬形态）
       const isThrottle = /\b(403|429)\b/.test(e.message);
       if (attempt < MAX_RETRY - 1) await sleep((isThrottle ? 5000 : 1000) * 2 ** attempt);
     }
@@ -132,7 +131,7 @@ async function fetchWithEmptyCheck(ap, up) {
 
 /**
  * OpenSky 兜底（bbox 查询）：匿名额度 400 credits/天，字段略少但真实。
- * 只在 adsb.lol / airplanes.live 都空或都失败时才动用 ——
+ * 只在 adsb.lol / adsb.fi 都空或都失败时才动用 ——
  * 这正是 ZSPD/ZUUU 的情况（adsb.lol 对华东无覆盖），没有它这两个
  * 机场的快照恒为空，前端只能报「数据中断」。
  */
@@ -166,7 +165,7 @@ async function fetchOpenSky(ap) {
 
 /**
  * 单个机场的完整取数链：
- *   adsb.lol（含空复核）→ airplanes.live（含空复核）→ OpenSky bbox
+ *   adsb.lol（含空复核）→ adsb.fi（含空复核）→ OpenSky bbox
  * 任一上游给出非空数据立即返回；全部为空才算 coverageGap；
  * 全部出错（如限流 403 贯穿始终）才抛错，交给重试轮。
  *
