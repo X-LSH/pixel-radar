@@ -614,80 +614,7 @@ group('轨迹追踪器');
 }
 
 /* ══════════════════════════════════════════════════════════════
- * 12) 模拟引擎
- * ══════════════════════════════════════════════════════════════ */
-const { createSimulator, SIM_REGIONS } = await load('src/data/simulate.js');
-
-group('模拟引擎');
-{
-  const ap = AIRPORT_BY_ICAO.ZBAA;
-  const sim = createSimulator(ap, { radiusKm: 90 });
-  const st0 = sim.stats();
-  ok('首屏立即有目标（不等填充）', st0.count > 10, `${st0.count} 架`);
-  ok('初始不是全在地面', [...sim.planes.values()].some((p) => !p.onGround));
-  ok('交通模式多样（≥3 种）', Object.keys(st0.modes).length >= 3, JSON.stringify(st0.modes));
-  ok('机场代号有区域承运人池', !!SIM_REGIONS.ZBAA && SIM_REGIONS.ZBAA === 'cn', SIM_REGIONS.ZBAA);
-
-  // 推进 10 分钟模拟时间
-  const seenPhases = new Set();
-  let maxImpliedKt = 0;
-  let outOfRange = 0;
-  let prev = new Map();
-  for (let step = 0; step < 1200; step++) {
-    sim.update(0.5);
-    for (const [hex, p] of sim.planes) {
-      seenPhases.add(p.phase);
-      const q = prev.get(hex);
-      if (q) {
-        const km = distKm(q.lat, q.lon, p.lat, p.lon);
-        maxImpliedKt = Math.max(maxImpliedKt, (km / 1.852) / (0.5 / 3600));
-      }
-      prev.set(hex, { lat: p.lat, lon: p.lon });
-      if (distKm(ap.lat, ap.lon, p.lat, p.lon) > 400) outOfRange++;
-    }
-  }
-  ok('长时间运行不出现瞬移（隐含速度 < 700kt）', maxImpliedKt < 700, `峰值 ${maxImpliedKt.toFixed(0)} kt`);
-  ok('目标不会飞出视景范围（< 400km）', outOfRange === 0, `${outOfRange} 次越界`);
-  ok('阶段覆盖丰富（≥4 种）', seenPhases.size >= 4, [...seenPhases].join('/'));
-  ok('爬升与下降都出现过',
-    seenPhases.has(PH.PHASES.CLIMB) && (seenPhases.has(PH.PHASES.DESCENT) || seenPhases.has(PH.PHASES.APPROACH)),
-    [...seenPhases].join('/'));
-
-  const st1 = sim.stats();
-  ok('流量维持稳定（±60% 目标值）', st1.count > st1.target * 0.4 && st1.count < st1.target * 1.6,
-    `${st1.count} / 目标 ${st1.target}`);
-
-  // 位置与高度必须始终有效
-  const badPlane = [...sim.planes.values()].find((p) => !Number.isFinite(p.lat) || !Number.isFinite(p.lon)
-    || !Number.isFinite(p.altFt) || p.altFt < 0 || Math.abs(p.lat) > 90 || Math.abs(p.lon) > 180);
-  ok('全部目标的状态有限且合法', !badPlane, badPlane ? JSON.stringify(badPlane) : '');
-
-  // 落地目标不应为负高度
-  ok('地面目标高度非负', [...sim.planes.values()].every((p) => p.altFt >= 0));
-
-  // 确定性：同种子两次运行结果一致
-  const a = createSimulator(ap, { radiusKm: 90 });
-  const b = createSimulator(ap, { radiusKm: 90 });
-  const sig = (s) => [...s.planes.values()].map((p) => `${p.callsign}@${p.lat.toFixed(4)},${p.lon.toFixed(4)},${p.altFt}`).sort().join('|');
-  ok('模拟引擎确定性（同机场两次开局一致）', sig(a) === sig(b));
-  for (let i = 0; i < 40; i++) { a.update(0.5); b.update(0.5); }
-  ok('确定性在推进后仍保持', sig(a) === sig(b));
-
-  // 不同机场应给出不同空域
-  const c = createSimulator(AIRPORT_BY_ICAO.KJFK, { radiusKm: 90 });
-  ok('不同机场产生不同空域', sig(a) !== sig(c));
-
-  // 无跑道数据时的降级：过境与盘旋不依赖跑道，仍应可用；
-  // 进离场必须不出现（而不是生成一条起点在机场中心的假航迹）
-  const noRw = createSimulator({ ...ap, runways: [] }, {});
-  const noRwModes = new Set([...noRw.planes.values()].map((p) => p.simMode));
-  ok('无跑道数据时优雅降级（仅保留不依赖跑道的模式）',
-    noRwModes.size > 0 && [...noRwModes].every((m) => m === 'overflight' || m === 'holding'),
-    [...noRwModes].join('/') || '(空)');
-}
-
-/* ══════════════════════════════════════════════════════════════
- * 13) 产物与工程约束
+ * 12) 产物与工程约束
  * ══════════════════════════════════════════════════════════════ */
 group('源码语法与结构');
 {
@@ -786,7 +713,7 @@ group('产物与工程约束');
 }
 
 /* ══════════════════════════════════════════════════════════════
- * 14) 渲染护栏（目标硬上限与尾迹视口剔除）
+ * 13) 渲染护栏（目标硬上限与尾迹视口剔除）
  * ══════════════════════════════════════════════════════════════ */
 group('渲染护栏（硬上限剔除 · 尾迹视口剔除）');
 {
@@ -834,10 +761,10 @@ group('渲染护栏（硬上限剔除 · 尾迹视口剔除）');
 }
 
 /* ══════════════════════════════════════════════════════════════
- * 15) 快照源链路（多镜像竞速 · 兜底仓库 · 404 判死）
+ * 14) 快照源链路（多镜像竞速 · 兜底仓库 · 404 判死）
  * ──────────────────────────────────────────────────────────────
- * 这组补的是「为什么线上/本地总是模拟数据」这类故障的防线：
- * 快照链路是默认通路，它一断，界面 100% 落到造的模拟数据。
+ * 这组补的是「快照链路一断就只剩数据中断」的防线：
+ * 快照是默认通路，它一断用户就彻底拿不到真实数据 —— 必须死守。
  * 全部用 mock fetch，不开网络、不碰真仓库。
  * ══════════════════════════════════════════════════════════════ */
 group('快照源链路（镜像竞速与判死）');
@@ -977,10 +904,27 @@ group('快照源链路（镜像竞速与判死）');
       ok('单候选超时 ≥8s（直连尾部延迟 7.9s 不再被掐死）',
         SOURCES.snapshotTimeoutMs >= 8000, `${SOURCES.snapshotTimeoutMs}ms`);
       const pipeSrc = await readFile(resolve(ROOT, 'src/data/pipeline.js'), 'utf8');
-      ok('模拟态重试阶梯（5s 起步、60s 封顶）常量在位',
+      ok('数据中断重试阶梯（5s 起步、60s 封顶）常量在位',
         /CHAIN_RETRY_INITIAL_MS = 5000/.test(pipeSrc) && /CHAIN_RETRY_MAX_MS = 60000/.test(pipeSrc), '');
       ok('恢复路径不再在 pullOnce 成功后清空真实轨迹',
         !/await pullOnce\(ctx\);\s*\r?\n\s*tracker\.reset\(\)/.test(pipeSrc), '');
+    }
+    /* 用例 9：永不造数 —— 模拟引擎已整体移除，链尾是诚实的「数据中断」态 */
+    {
+      const pSrc = await readFile(resolve(ROOT, 'src/data/pipeline.js'), 'utf8');
+      ok('管线不再引用模拟引擎', !/createSimulator|simulate\.js/.test(pSrc), '');
+      ok('链尾为「数据中断」标签', pSrc.includes(`case 'down': return '数据中断';`), '');
+      ok('任何路径都不伪造数据年龄（无 fetchedAt: Date.now()）',
+        !/fetchedAt: Date\.now\(\)/.test(pSrc)
+        && pSrc.includes(`state: 'down'`), '');
+      const gone = async (rel) => !(await stat(resolve(ROOT, rel)).catch(() => null));
+      ok('模拟引擎文件已删除',
+        await gone('src/data/simulate.js') && await gone('src/data/sim-modes.js'), '');
+      const html = await readFile(resolve(ROOT, 'index.html'), 'utf8');
+      ok('侧栏链路以 OpenSky 兜底替代「模拟数据」条目',
+        !html.includes('data-src="simulation"') && html.includes('data-src="opensky"'), '');
+      ok('数据中断重试走完整条链（不停留在首个未配置源）',
+        /await walkChain\(ctx\)/.test(pSrc), '');
     }
   } finally {
     globalThis.fetch = origFetch;

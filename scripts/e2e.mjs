@@ -237,18 +237,18 @@ async function main() {
     !Object.prototype.hasOwnProperty.call(s0.phases, 'unknown'), JSON.stringify(s0.phases));
 
   /**
-   * 线上环境额外要求：数据必须是**真实**的，不能是兜底的模拟数据。
+   * 线上环境额外要求：数据必须走**真实通路**（live / 静态快照）。
    *
-   * 为什么单独设一道：默认断言只检查「有目标」，而模拟数据同样有目标 ——
-   * 于是「快照为空 → 降级到模拟」这种最需要被发现的故障，反而会被判为通过。
+   * 为什么单独设一道：默认断言只检查「有目标」；若哪天有人重新引入
+   * 造数兜底，「快照为空 → 造数」这种最需要被发现的故障会被判为通过。
    * 用 REQUIRE_REAL=1 显式开启这条严格检查。
    */
   if (process.env.REQUIRE_REAL === '1') {
-    check('数据源为真实通路（非模拟兜底）',
+    check('数据源为真实通路（live / 静态快照）',
       s0.feed.state === 'snapshot' || s0.feed.state === 'live',
       `${s0.feed.state} / ${s0.feed.sourceId}`);
-    check('目标来自真实快照（未被判定为空）',
-      s0.count > 0 && !!s0.feed.fetchedAt && s0.feed.sourceId !== '模拟',
+    check('目标来自真实快照（非数据中断、非空）',
+      s0.count > 0 && !!s0.feed.fetchedAt && s0.feed.state !== 'down',
       `${s0.count} 架 · 源 ${s0.feed.sourceId}`);
   }
 

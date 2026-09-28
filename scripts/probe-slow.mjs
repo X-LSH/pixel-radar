@@ -1,10 +1,11 @@
 /**
  * 慢网络确定性复现 · 给整页注入 LATENCY_MS(默认5000) 的 RTT
- * 模拟「三个镜像全部慢过单候选超时」的网络（本机直连 raw 实测 712ms~7.9s 抖动）：
- *   · 改前 snapshotTimeoutMs=4000：所有候选在 5s 响应前被 4s 超时掐死 → 预期停留 simulation
- *   · 改后 snapshotTimeoutMs=8000：慢而活的候选在 8s 内返回 → 预期翻回 snapshot/live
+ * 复刻「镜像全部慢过单候选超时」的网络（本机直连 raw 实测 712ms~7.9s 抖动）：
+ *   · 超时 4s 时代：候选全被掐死 → 停留数据中断（旧版此处为模拟态）
+ *   · 现行 8s 超时 + 五镜像：慢而活的候选在 8s 内返回 → 预期真实快照
  * 用法：node scripts/probe-slow.mjs [BASE]   需本地 serve 已启动（node scripts/serve.mjs）
- * 环境变量：EXPECT=simulation|snapshot  LATENCY_MS  WATCH_MS  BOOT_MS  CDP_PORT
+ * 环境变量：EXPECT=snapshot|down  LATENCY_MS  WATCH_MS  BOOT_MS  CDP_PORT
+ *          RECOVER_AFTER_READY_MS=<ms>  就绪后解除延迟（验证「中断 → 自动恢复」）
  */
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync } from 'node:fs';
@@ -121,6 +122,17 @@ async function main() {
   if (!snap) { console.log(`FAIL: ${BOOT_MS}ms 内页面未就绪`); process.exitCode = 1; ws.close(); return; }
 
   const t0 = Date.now();
+  /* 可选：就绪后解除延迟注入 —— 端到端验证「数据中断 → 阶梯重试 → 自动恢复真实数据」 */
+  if (process.env.RECOVER_AFTER_READY_MS !== undefined) {
+    const d = Number(process.env.RECOVER_AFTER_READY_MS) || 0;
+    setTimeout(async () => {
+      await send('Network.emulateNetworkConditions', {
+        offline: false, latency: 0,
+        downloadThroughput: 100 * 1024 * 1024, uploadThroughput: 100 * 1024 * 1024,
+      });
+      console.log(`\n*** 就绪后 ${d}ms：已解除延迟注入，等待阶梯重试恢复 ***\n`);
+    }, d);
+  }
   const timeline = [{ ms: 0, mode: snap.mode, state: snap.feed?.state, label: snap.feed?.label, err: snap.feed?.lastError, count: snap.count }];
   let last = `${snap.mode}|${snap.feed?.state}`;
   while (Date.now() - t0 < WATCH) {
