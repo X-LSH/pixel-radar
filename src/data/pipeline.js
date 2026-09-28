@@ -1,31 +1,31 @@
 /**
  * Pixel Radar · 数据管线
  * ---------------------------------------------------------------
- * 职责：按优先级依次尝试数据源，失败自动降级，最终落到模拟数据，
- * 并把「当前用的是什么、上游是谁、多久前拿到的」如实告诉界面。
+ * 职责：按优先级依次尝试数据源，失败自动降级，把「当前用的是什么、
+ * 上游是谁、多久前拿到的」如实告诉界面。
  *
  * 优先级链（对应规格的三层降级 + OpenSky 兜底）：
- *   自备中继 → 静态快照 → 直接聚合源 → OpenSky → 模拟
+ *   自备中继 → 静态快照 → 直接聚合源 → OpenSky
  *
  * 几条纪律：
- *  · **绝不静默造假**：一旦回落到模拟，界面必须显示「模拟数据」。
- *  · **绝不空屏**：任何路径失败都不会导致空域为空。
+ *  · **绝不造假**：任何情况下都不生成假目标。全部真实上游不可用时进入
+ *    「数据中断（down）」：保留最后一批真实观测（自然淡出），界面明确
+ *    标注中断原因，并按阶梯自动重试，上游恢复即切回真实数据。
  *  · **失败要退避**：指数退避，避免把上游打挂 / 烧光自己的配额。
  *  · 页面隐藏时降频，这不是省流量，而是不打扰后台标签页。
  */
 
 import { POLL } from '../config.js';
 import { normalizePlane } from './normalize.js';
-import { createSimulator } from './simulate.js';
 import {
   relaySource, snapshotSource, directSource, openSkySource,
   FetchError,
 } from './sources.js';
 import { Tracker } from '../state/tracker.js';
 
-/** 初始探测的预算：超时即先上模拟，别让用户对着启动幕发呆 */
+/** 初始探测的预算：超时即先报「数据中断」，别让用户对着启动幕发呆 */
 const BOOT_BUDGET_MS = 6000;
-/** 模拟态重试整条链的阶梯：起步 5s、每败一阶翻倍、60s 封顶、成功即复位 */
+/** 数据中断态重试整条链的阶梯：起步 5s、每败一阶翻倍、60s 封顶、成功即复位 */
 const CHAIN_RETRY_INITIAL_MS = 5000;
 const CHAIN_RETRY_MAX_MS = 60000;
 /** 连续失败多少次就降级到下一个源 */
@@ -38,8 +38,7 @@ export function createPipeline({
 
   let sources = [];
   let cursor = 0;
-  let mode = 'boot'; // boot | relay | snapshot | direct | opensky | simulation
-  let sim = null;
+  let mode = 'boot'; // boot | relay | snapshot | direct | opensky | down
   let timer = null;
   let pollAbort = null;
   let consecutiveFails = 0;
@@ -144,7 +143,7 @@ export function createPipeline({
     switch (state) {
       case 'live': return '实时数据';
       case 'snapshot': return '静态快照';
-      case 'simulation': return '模拟数据';
+      case 'down': return '数据中断';
       default: return '正在接入';
     }
   }
@@ -161,25 +160,40 @@ export function createPipeline({
     cursor++;
     publishTrail();
 
-    if (cursor >= sources.length) enterSimulation(reason);
+    if (cursor >= sources.length) enterDown(reason);
   }
 
-  function enterSimulation(reason) {
-    if (!sim) {
-      const airport = getAirport();
-      sim = createSimulator(airport, { radiusKm: 90 });
-      tracker.reset();
+  /**
+   * 从中断态恢复：从头走完整条链，任一源成功即收口，全部失败才抛最后一次错误。
+   * 绝不能只试 cursor=0 —— 未配置的中继会立即抛错（`未配置中继地址`），
+   * 单步重试将永远卡在第一环，上游恢复了也永远回不来。
+   */
+  async function walkChain(ctx) {
+    let last = null;
+    while (cursor < sources.length) {
+      try {
+        await pullOnce(ctx);
+        return;
+      } catch (e) {
+        last = e;
+        cursor++;
+        publishTrail();
+      }
     }
-    mode = 'simulation';
-    sourceId = 'simulation';
+    throw last || new FetchError('全部上游不可用', 'exhausted');
+  }
+
+  /** 全部真实上游不可用 →「数据中断」：不造数（fetchedAt 保持真实年龄），屏上留最后真实观测并阶梯重试 */
+  function enterDown(reason) {
+    mode = 'down';
+    sourceId = '';
     chainRetryAt = Date.now() + retryDelay;
     retryDelay = Math.min(retryDelay * 2, CHAIN_RETRY_MAX_MS);
     publishFeed({
-      state: 'simulation',
-      label: labelOf('simulation'),
+      state: 'down',
+      label: labelOf('down'),
       detail: reason ? `上游不可用：${reason}` : '上游不可用',
-      sourceId: '模拟',
-      fetchedAt: Date.now(),
+      sourceId: '—',
       lastError: reason || null,
     });
     publishTrail();
@@ -192,7 +206,6 @@ export function createPipeline({
     consecutiveFails = 0;
     chainRetryAt = 0;
     tracker.reset();
-    sim = null;
     publishTrail();
     if (immediate) scheduleNext(0);
   }
@@ -201,7 +214,7 @@ export function createPipeline({
    * 调度
    * ------------------------------------------------------------ */
   function nextInterval() {
-    if (mode === 'simulation') return Math.max(0, chainRetryAt - Date.now());
+    if (mode === 'down') return Math.max(0, chainRetryAt - Date.now());
     if (!visible) return POLL.hiddenMs;
     if (consecutiveFails > 0) {
       const idx = Math.min(consecutiveFails, POLL.backoffMs.length) - 1;
@@ -222,19 +235,17 @@ export function createPipeline({
     const now = Date.now();
     const ctx = context();
 
-    // 处于模拟态：定期重试整条链，看上游是否恢复
-    if (mode === 'simulation') {
+    // 数据中断态：按阶梯重试整条链，上游恢复即切回真实数据
+    if (mode === 'down') {
       if (now >= chainRetryAt) {
         sources = buildSources();
         cursor = 0;
         consecutiveFails = 0;
         publishTrail();
         try {
-          await pullOnce(ctx);
-          // 不在此 reset：pullOnce 刚写入的真实观测会被连同模拟轨迹一起清掉 → 恢复后空屏一轮
-          sim = null;
+          await walkChain(ctx);
         } catch (e) {
-          enterSimulation(reasonOf(e));
+          enterDown(reasonOf(e));
         }
       }
       scheduleNext();
@@ -250,7 +261,7 @@ export function createPipeline({
       publishFeed({ lastError: reason });
       downgrade(reason);
       // 降级后若还有下一个源，立即再试一次，不要干等一个退避周期
-      if (mode !== 'simulation' && cursor < sources.length) {
+      if (mode !== 'down' && cursor < sources.length) {
         scheduleNext(400);
         return;
       }
@@ -281,8 +292,8 @@ export function createPipeline({
    * ------------------------------------------------------------ */
 
   /**
-   * 启动：先用一个有限预算探测真实源，失败即上模拟。
-   * 这样大多数情况下用户直接就落到真实数据，不会看到模拟画面闪一下。
+   * 启动：用有限预算探测真实源，失败即报「数据中断」并按阶梯自动重试
+   * ——宁可诚实地中断，也绝不给用户看造出来的假目标。
    */
   async function start() {
     running = true;
@@ -293,7 +304,7 @@ export function createPipeline({
 
     const ctx = context();
     if (!ctx) {
-      enterSimulation('未选择机场');
+      enterDown('未选择机场');
       return;
     }
 
@@ -320,9 +331,9 @@ export function createPipeline({
     if (winner === 'ok') {
       mode = sources[Math.min(cursor, sources.length - 1)].id;
     } else {
-      enterSimulation(winner === 'exhausted' ? '全部上游不可用' : '探测超时');
+      enterDown(winner === 'exhausted' ? '全部上游不可用' : '探测超时');
     }
-    scheduleNext(mode === 'simulation' ? 0 : POLL.visibleMs);
+    scheduleNext(mode === 'down' ? 0 : POLL.visibleMs);
   }
 
   function stop() {
@@ -332,7 +343,7 @@ export function createPipeline({
   }
 
   /**
-   * 主循环调用：推进模拟并产出渲染帧。
+   * 主循环调用：推进追踪器（插值/外推）并产出渲染帧。
    *
    * **时间基准必须是墙钟（Date.now()），不能用 rAF 时间戳。** 两者一旦不同源，
    * `now - tPrev` 是约 -1.77e12 的巨负数 → 插值/外推/陈旧判定/幽灵清理全变
@@ -341,17 +352,6 @@ export function createPipeline({
    */
   function update(dtSec) {
     const wall = Date.now();
-    if (mode === 'simulation' && sim) {
-      sim.update(dtSec);
-      // 模拟数据本身是连续的，直接作为观测写入
-      const list = [...sim.planes.values()];
-      for (const p of list) p.obsAt = wall;
-      tracker.ingest(list, wall);
-      if (list.length !== lastCount) {
-        lastCount = list.length;
-        publishFeed({ count: list.length, fetchedAt: wall, sourceId: '模拟' });
-      }
-    }
     const frame = tracker.frame(wall, dtSec);
     // 只在架数真正变化时广播 —— 每帧广播会把侧栏 DOM 打爆
     if (frame.length !== lastCount) {
@@ -361,7 +361,7 @@ export function createPipeline({
     return frame;
   }
 
-  /** 换机场：重置追踪器与模拟器，链从头再来 */
+  /** 换机场：重置追踪器，链从头再来 */
   function setAirport() {
     restartChain(true);
   }
@@ -385,7 +385,6 @@ export function createPipeline({
       lastSuccessAt,
       lastObservationAt,
       lastError,
-      simStats: sim ? sim.stats() : null,
       cursor,
       sources: sources.map((s) => ({ id: s.id, label: s.label, available: s.available() })),
     };

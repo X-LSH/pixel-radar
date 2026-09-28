@@ -176,7 +176,7 @@ export const SOURCES = {
    *
    * 为什么是五个而不是一个：`raw.githubusercontent.com` 在部分网络
    * 环境（尤其中国大陆）不可达或剧烈抖动 —— 本机直连实测 0.7~7.9s，
-   * 单候选一挂就意味着「快照链路不可达 → 永远落模拟数据」。
+   * 单候选一挂就意味着「快照链路不可达 → 界面只剩数据中断」。
    * 五个候选全部带 `Access-Control-Allow-Origin: *`，按故障域互补：
    *   · raw              —— 官方、缓存 5 分钟，与采集节奏吻合（首选）
    *   · cdn.jsdelivr     —— jsDelivr 主边缘（Cloudflare），国内通常可达
@@ -194,14 +194,14 @@ export const SOURCES = {
   /**
    * 仓库名推断失败（localhost / 自定义静态托管）时的兜底仓库。
    * 没有它，本地开发只有一条「同源快照」路 —— 而 data/snapshots 被
-   * .gitignore 忽略，全新 clone 必然 404 → 100% 落到模拟数据。
+   * .gitignore 忽略，全新 clone 必然 404 → 本地拿不到任何真实数据。
    */
   fallbackRepo: 'X-LSH/pixel-radar',
   /**
    * 单个快照候选的超时。必须盖住慢网直连的尾部延迟（本机直连 raw 实测
    * 0.7~7.9s）：曾经的 4s 会把「慢而活」的候选全部掐死 —— CDP 注入 5s RTT
-   * 的复现探针里四个候选齐齐 ERR_ABORTED@4s → 每轮必败 → 永久模拟数据。
-   * 启动预算仍是 6s：超预算先给模拟兜底，迟到成功的候选会自动翻回真实。
+   * 的复现探针里四个候选齐齐 ERR_ABORTED@4s → 每轮必败 → 长期数据中断。
+   * 启动预算仍是 6s：超预算先报数据中断，迟到成功的候选会自动翻回真实。
    */
   snapshotTimeoutMs: 8000,
   /** 快照年龄小于该值即「足够新鲜」，先到先得，不必等更慢的候选 */
@@ -218,7 +218,7 @@ export const SOURCES = {
     route: (cs) => `https://api.adsbdb.com/v0/callsign/${encodeURIComponent(cs)}`,
     hex: (hex) => `https://hexdb.io/api/v1/aircraft/${encodeURIComponent(hex)}`,
   },
-  sourceOrder: ['relay', 'snapshot', 'direct', 'simulation'],
+  sourceOrder: ['relay', 'snapshot', 'direct'],
 };
 
 /* ================================================================

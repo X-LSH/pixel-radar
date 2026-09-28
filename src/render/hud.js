@@ -75,7 +75,6 @@ export function drawHud(ctx, o) {
 
 /** 数据源徽标 */
 function sourceBadge(feed, count) {
-  if (feed.state === 'simulation') return { text: 'SIMULATED', color: PAL.selected };
   if (feed.state === 'snapshot') return { text: 'SNAPSHOT', color: PAL.hudHot };
   if (feed.state === 'live') return { text: 'LIVE ADS-B', color: PAL.hud };
   if (feed.state === 'down') return { text: 'NO FEED', color: PAL.descent };

@@ -6,7 +6,7 @@
  * 启动顺序是有讲究的：
  *   1. 先按「时区推荐」或上次选择确定机场；
  *   2. 再加载该机场的地理形状（按需动态 import，只有它自己的那份）；
- *   3. 然后给数据管线一个有限预算尝试真实源，失败才上模拟；
+ *   3. 然后给数据管线一个有限预算尝试真实源，失败即报「数据中断」；
  *   4. 最后撤掉启动幕。
  * 这样用户看到的是一块已经就位的雷达屏，而不是「先空转再慢慢长出来」。
  */
@@ -282,7 +282,7 @@ async function boot() {
     const dtSec = Math.min(0.5, step / 1000);
     fps += (1000 / step - fps) * 0.08;
 
-    // 暂停时不推进模拟、不重算外推 —— 画面必须真的静止，而不是慢慢漂
+    // 暂停时不推进外推 —— 画面必须真的静止，而不是慢慢漂
     if (!paused) frame = pipeline.update(dtSec);
 
     // 跟随：把镜头平滑推向目标
@@ -369,7 +369,7 @@ async function boot() {
   chrome.setBoot('正在接入空域数据…', 62);
 
   await pipeline.start();
-  chrome.setBoot('雷达就位', 100);
+  chrome.setBoot(pipeline.getMode() === 'down' ? '空域数据不可用 · 界面将持续自动重试' : '雷达就位', 100);
 
   requestAnimationFrame(loop);
   setTimeout(() => {

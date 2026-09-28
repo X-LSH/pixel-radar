@@ -59,14 +59,14 @@ export function createChrome({ store, actions }) {
     relayNote: el('relayNote'),
   };
 
-  /* ── 屏角「模拟数据」标记 ──
+  /* ── 屏角「数据中断」标记 ──
    * 屏内是 CRT 字符发生器，画不了中文；但这个提示必须一眼看到，
    * 所以用一层贴在画布上方的 DOM 徽标，跟随画布缩放。 */
-  const simBadge = document.createElement('div');
-  simBadge.className = 'sim-badge';
-  simBadge.hidden = true;
-  simBadge.textContent = '模拟数据';
-  refs.screenBox.append(simBadge);
+  const downBadge = document.createElement('div');
+  downBadge.className = 'down-badge';
+  downBadge.hidden = true;
+  downBadge.textContent = '数据中断';
+  refs.screenBox.append(downBadge);
 
   /* ── 事件绑定 ── */
   refs.airportBtn.addEventListener('click', () => actions.openPicker());
@@ -138,7 +138,6 @@ export function createChrome({ store, actions }) {
     chip.className = 'chip';
     if (feed.state === 'live') chip.classList.add('chip--live');
     else if (feed.state === 'snapshot') chip.classList.add('chip--snap');
-    else if (feed.state === 'simulation') chip.classList.add('chip--sim');
     else if (feed.state === 'down') chip.classList.add('chip--down');
     refs.feedLabel.textContent = feed.label;
 
@@ -148,7 +147,7 @@ export function createChrome({ store, actions }) {
       feed.lastError ? `最近错误：${feed.lastError}` : '',
     ].filter(Boolean).join('\n');
 
-    simBadge.hidden = feed.state !== 'simulation';
+    downBadge.hidden = feed.state !== 'down';
 
     // 侧栏链路
     const items = refs.chain.querySelectorAll('li');
@@ -165,7 +164,8 @@ export function createChrome({ store, actions }) {
       if (id === 'relay') em.textContent = actions.getRelayUrl() ? (hit.state === 'active' ? '使用中' : '已配置') : '未配置';
       else if (id === 'snapshot') em.textContent = hit.state === 'active' ? '使用中' : (hit.state === 'fail' ? '不可用' : '待探测');
       else if (id === 'direct') em.textContent = hit.state === 'active' ? '使用中' : (hit.state === 'fail' ? '被跨域拦截' : '待探测');
-      else if (id === 'simulation') em.textContent = feed.state === 'simulation' ? '使用中' : '兜底';
+      else if (id === 'opensky') em.textContent = hit.state === 'active' ? '使用中'
+        : hit.state === 'fail' ? '不可用' : '待探测';
     }
   }
 
@@ -189,7 +189,7 @@ export function createChrome({ store, actions }) {
 
     refs.sbs.mode.hidden = false;
     if (paused) refs.sbs.mode.textContent = '已暂停';
-    else if (feed.state === 'simulation') refs.sbs.mode.textContent = '模拟数据 · 非真实航班';
+    else if (feed.state === 'down') refs.sbs.mode.textContent = '数据中断 · 上游不可用，自动重试中';
     else refs.sbs.mode.textContent = '';
 
     refs.zoomRead.textContent = `${view.zoomMult.toFixed(view.zoomMult < 1 ? 2 : 1)}×`;
@@ -213,7 +213,7 @@ export function createChrome({ store, actions }) {
     if (refs.relayInput.value !== s.relayUrl) refs.relayInput.value = s.relayUrl || '';
     refs.relayNote.textContent = s.relayUrl
       ? '已保存，将优先使用该中继。'
-      : '留空则使用静态快照；快照不可用时回落到模拟数据。';
+      : '留空则使用静态快照；快照不可用时报「数据中断」并自动重试，绝不造数。';
   }
 
   function setPanelOpen(open) {

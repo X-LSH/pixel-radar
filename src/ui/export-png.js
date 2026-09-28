@@ -47,7 +47,7 @@ export function exportPng({ canvas, resolution, airport, ringKm, feed }) {
   ctx.fillStyle = '#d9d5ce';
   ctx.fillText(`${airport.cn} · ${airport.en}`, pad + 76 * OUT_SCALE / 3, midY);
 
-  const srcName = feed.state === 'simulation' ? '模拟数据'
+  const srcName = feed.state === 'down' ? '数据中断'
     : feed.state === 'snapshot' ? '静态快照' : '实时 ADS-B';
 
   const d = new Date();

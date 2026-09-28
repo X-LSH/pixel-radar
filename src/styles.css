@@ -167,8 +167,6 @@ body { overflow: hidden; }
 .chip--live  .chip__dot { background: var(--crt); box-shadow: 0 0 6px var(--crt); animation: pulse 1.8s ease-in-out infinite; }
 .chip--snap  { border-color: rgb(143 184 217 / 34%); color: var(--snap); }
 .chip--snap  .chip__dot { background: var(--snap); }
-.chip--sim   { border-color: rgb(255 255 127 / 30%); color: var(--sel); }
-.chip--sim   .chip__dot { background: var(--sel); animation: pulse 1.8s ease-in-out infinite; }
 .chip--down  { border-color: rgb(255 77 77 / 40%); color: var(--warn); }
 .chip--down  .chip__dot { background: var(--warn); }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .32; } }
@@ -233,7 +231,7 @@ body { overflow: hidden; }
 .app[data-crt="off"] .glass { display: none; }
 
 /* 数据来源标记：必须一眼看到，所以用 DOM 徽标覆盖在画布之上 */
-.sim-badge {
+.down-badge {
   position: absolute;
   left: 50%;
   bottom: 10px;
@@ -241,16 +239,16 @@ body { overflow: hidden; }
   z-index: 4;
   pointer-events: none;
   padding: 3px 10px;
-  border: 1px solid rgb(255 255 127 / 42%);
+  border: 1px solid rgb(255 77 77 / 45%);
   border-radius: var(--r);
   background: rgb(4 6 4 / 78%);
-  color: var(--sel);
+  color: var(--warn);
   font-family: var(--mono);
   font-size: 11px;
   letter-spacing: .18em;
   white-space: nowrap;
 }
-.sim-badge[hidden] { display: none; }
+.down-badge[hidden] { display: none; }
 
 /* ─────────────── 启动幕 ─────────────── */
 .boot {

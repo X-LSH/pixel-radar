@@ -129,7 +129,7 @@ export function relaySource(getUrl) {
  *
  * 为什么从「先同源、再单个 raw 镜像」改成这样，两条实测教训：
  *   · raw.githubusercontent.com 在部分网络整体不可达 —— 单镜像 = 快照
- *     链路整体瘫痪 = 前端永远显示「模拟数据」（用户报的核心故障）；
+ *     链路整体瘫痪 = 前端只剩「数据中断」（用户报的核心故障）；
  *   · 本地 data/snapshots 被 .gitignore 忽略，全新 clone 的同源路径
  *     必然 404，且旧代码在本地**不尝试镜像** —— 本地开发 100% 落模拟。
  */

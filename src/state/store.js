@@ -69,7 +69,7 @@ export function createStore() {
     selectedHex: null,
     /** 当前数据源状态 */
     feed: {
-      state: 'boot', // boot | live | snapshot | simulation | down
+      state: 'boot', // boot | live | snapshot | down
       label: '正在接入',
       detail: '',
       sourceId: '',
