@@ -11,7 +11,7 @@
  *     https://www.naturalearthdata.com/                    (Public Domain)
  *
  * 产物：
- *   src/data/airports.js   —— 20 个预设机场 + 真实跑道
+ *   src/data/airports.js   —— 30 个预设机场（20 规格 + 10 扩充）+ 真实跑道
  *   src/data/geo-shapes.js —— 按机场裁剪并简化的海岸线 / 建成区 / 湖泊
  *
  * 用法：
@@ -41,7 +41,7 @@ const DATA_DIR = resolve(ROOT, 'src/data');
 const RAW_DIR = resolve(ROOT, '.tmp/raw');
 
 /* ================================================================
- * 机场清单（规格指定的 20 个）
+ * 机场清单（规格指定的 20 个 + 扩充 10 个，青岛胶东优先）
  * ----------------------------------------------------------------
  * tz 用于「按时区推荐」与本地时间显示；中文名用于界面，
  * 英文名直接取 OurAirports 的官方 name 字段，不自行转写。
@@ -67,6 +67,17 @@ const AIRPORT_LIST = [
   { icao: 'KSEA', iata: 'SEA', cn: '西雅图',     tz: 'America/Los_Angeles' },
   { icao: 'YSSY', iata: 'SYD', cn: '悉尼',       tz: 'Australia/Sydney' },
   { icao: 'YMML', iata: 'MEL', cn: '墨尔本',     tz: 'Australia/Melbourne' },
+  // ── 扩充（用户要求：优先青岛）──
+  { icao: 'ZSQD', iata: 'TAO', cn: '青岛胶东',   tz: 'Asia/Shanghai' },
+  { icao: 'ZSHC', iata: 'HGH', cn: '杭州萧山',   tz: 'Asia/Shanghai' },
+  { icao: 'ZSAM', iata: 'XMN', cn: '厦门高崎',   tz: 'Asia/Shanghai' },
+  { icao: 'ZHHH', iata: 'WUH', cn: '武汉天河',   tz: 'Asia/Shanghai' },
+  { icao: 'ZUCK', iata: 'CKG', cn: '重庆江北',   tz: 'Asia/Shanghai' },
+  { icao: 'ZPPP', iata: 'KMG', cn: '昆明长水',   tz: 'Asia/Shanghai' },
+  { icao: 'ZLXY', iata: 'XIY', cn: '西安咸阳',   tz: 'Asia/Shanghai' },
+  { icao: 'ZSNJ', iata: 'NKG', cn: '南京禄口',   tz: 'Asia/Shanghai' },
+  { icao: 'KATL', iata: 'ATL', cn: '亚特兰大',   tz: 'America/New_York' },
+  { icao: 'EHAM', iata: 'AMS', cn: '阿姆斯特丹', tz: 'Europe/Amsterdam' },
 ];
 
 /** 裁剪半径（度）。要覆盖 50km 距离环并留出平移余量。 */

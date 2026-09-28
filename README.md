@@ -20,7 +20,7 @@
 node scripts/serve.mjs              # 起本地服务（无依赖，无需 npm install）
 # 打开 http://127.0.0.1:5173/
 
-node scripts/collect.mjs            # 可选：采集 20 个机场的真实 ADS-B 快照
+node scripts/collect.mjs            # 可选：采集 30 个机场的真实 ADS-B 快照
 node scripts/collect.mjs --icao=ZBAA,ZSPD,VHHH
 node scripts/collect.mjs --watch=300   # 常驻，每 5 分钟刷新，本地也能看到「准实时」
 ```
@@ -141,7 +141,7 @@ src/
     geo.js                局部等距方位投影（AEQD）、大圆距离、方位角
     rng.js                确定性伪随机与值噪声
   data/
-    airports.js           ← 生成物：20 机场 + 真实跑道
+    airports.js           ← 生成物：30 机场 + 真实跑道
     shapes/               ← 生成物：按机场裁剪的海岸线 / 建成区 / 湖泊
     countries.js          ICAO24 地址块 → 注册国
     normalize.js          上游字段 → 内部模型（含飞行阶段判定）
@@ -240,7 +240,7 @@ canvas 的 `rotate() + drawImage` 会对 12×12 位图做双线性重采样，
 ## 当前进度
 
 - ✅ **M1 静态演示**：像素地图、雷达扫描（初期为静态演示画面，后由真实数据取代）
-- ✅ **M2 真实数据**：快照接入、信息卡、20 机场切换
+- ✅ **M2 真实数据**：快照接入、信息卡、30 机场切换（青岛胶东优先扩充）
 - 🔜 M3 交互完善：15 分钟时间轴回放、筛选、跟随（尾迹已提前实装 ——
   没有尾迹的雷达屏观感上是残缺的）
 - 🔜 M4 氛围增强：声音、多主题、统计、PWA
