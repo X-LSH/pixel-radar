@@ -57,8 +57,8 @@ const EMPTY_PROBE_MS = 6000;
  *
  * 为什么必须有：实测一轮 20 个机场里 KSFO/YSSY 会吃到 HTTP 403
  * （adsb.lol 静默限流的硬形态），而 ZSPD/ZUUU 在 adsb.lol 上是真空集 ——
- * 旧代码对这两种情况都直接定稿，前端拿到空快照就降级到「模拟数据」，
- * 于是这两个机场**永远显示假数据**。失败是暂态的，隔半分钟再问一次
+ * 旧代码对这两种情况都直接定稿，前端拿到空快照就只剩「数据中断」，
+ * 这两个机场就永远拿不到真实数据。失败是暂态的，隔半分钟再问一次
  * 通常就能救回来；救不回来的才让它带着 error 进 index。
  */
 const RETRY_PASSES = 2;
@@ -134,7 +134,7 @@ async function fetchWithEmptyCheck(ap, up) {
  * OpenSky 兜底（bbox 查询）：匿名额度 400 credits/天，字段略少但真实。
  * 只在 adsb.lol / airplanes.live 都空或都失败时才动用 ——
  * 这正是 ZSPD/ZUUU 的情况（adsb.lol 对华东无覆盖），没有它这两个
- * 机场的快照恒为空，前端只能降级到模拟数据。
+ * 机场的快照恒为空，前端只能报「数据中断」。
  */
 async function fetchOpenSky(ap) {
   const b = bboxAround(ap.lat, ap.lon, RADIUS_NM * 1.852);
@@ -294,8 +294,8 @@ async function runOnce(tag) {
    * 重试轮：只补「出错」与「全空」的机场，恢复即原位覆盖 index 条目。
    *
    * 为什么单独一轮：主轮里 KSFO/YSSY 吃到 403（限流）、ZSPD/ZUUU 撞上
-   * adsb.lol 空集时，旧实现直接定稿 —— 空快照让前端降级到模拟数据，
-   * 这两个机场于是**永远显示假数据**。失败多是暂态，隔半分钟再问
+   * adsb.lol 空集时，旧实现直接定稿 —— 空快照让前端只能报「数据中断」，
+   * 这两个机场于是永远拿不到真实数据。失败多是暂态，隔半分钟再问
    * 通常能救回来；复查仍空才放行（三层上游都空两遍 ≈ 真实覆盖缺口）。
    */
   for (let pass = 1; pass <= RETRY_PASSES && pending.length; pass++) {
