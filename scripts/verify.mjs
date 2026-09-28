@@ -80,11 +80,11 @@ const GEO = await load('src/core/geo.js');
 
 group('机场与跑道数据');
 {
-  ok('机场数量为规格要求的 20 个', AIRPORTS.length === 20, `${AIRPORTS.length}`);
-  ok('ICAO 唯一', new Set(AIRPORTS.map((a) => a.icao)).size === 20);
-  ok('IATA 唯一', new Set(AIRPORTS.map((a) => a.iata)).size === 20);
-  ok('按 ICAO 建索引可查', Object.keys(AIRPORT_BY_ICAO).length === 20);
-  ok('按 IATA 建索引可查', Object.keys(AIRPORT_BY_IATA).length === 20);
+  ok('机场数量 = 生成清单（30 个：20 规格 + 10 扩充）', AIRPORTS.length === 30, `${AIRPORTS.length}`);
+  ok('ICAO 唯一', new Set(AIRPORTS.map((a) => a.icao)).size === 30);
+  ok('IATA 唯一', new Set(AIRPORTS.map((a) => a.iata)).size === 30);
+  ok('按 ICAO 建索引可查', Object.keys(AIRPORT_BY_ICAO).length === 30);
+  ok('按 IATA 建索引可查', Object.keys(AIRPORT_BY_IATA).length === 30);
 
   const badCoord = AIRPORTS.filter((a) => !(a.lat >= -90 && a.lat <= 90 && a.lon >= -180 && a.lon <= 180));
   ok('坐标在合法范围', badCoord.length === 0, badCoord.map((a) => a.icao).join(' '));
@@ -93,9 +93,10 @@ group('机场与跑道数据');
   ok('每个机场至少一条跑道', noRw.length === 0, noRw.map((a) => a.icao).join(' '));
 
   const totalRw = AIRPORTS.reduce((n, a) => n + a.runways.length, 0);
-  // 64 条：OurAirports 原始数据里 20 个机场共有 65 条，其中 ZSPD 的 15/33
-  // 端点坐标是 (0,0)（该源用 0 表示缺失），已在构建期剔除。
-  ok('跑道总数为 64 条（已剔除 1 条坐标缺失的伪跑道）', totalRw === 64, `${totalRw}`);
+  // 94 条：OurAirports 原始数据里 30 个机场共有 96 条，其中 ZSPD 的 15/33
+  // 端点坐标是 (0,0)（该源用 0 表示缺失）、ZLXY 另有 1 条无效坐标，
+  // 均已在构建期剔除。
+  ok('跑道总数为 94 条（已剔除 2 条坐标无效的伪跑道）', totalRw === 94, `${totalRw}`);
   const rwPer = AIRPORTS.map((a) => a.runways.length);
   ok('单机场跑道数在合理区间（1–7）',
     rwPer.every((n) => n >= 1 && n <= 7),
@@ -195,9 +196,9 @@ group('地理形状（按机场懒加载模块）');
   ok('所有形状坐标严格落在裁剪框内（几何裁剪而非整段收编）',
     outside === 0, outside ? `${outside} 个越界点，最大外溢 ${maxOver.toFixed(3)}°` : '31k 个点全部合规');
 
-  // 内陆机场没有海岸线是正常的，但不该 20 个都空
+  // 内陆机场没有海岸线是正常的，但不该 30 个都空
   const withCoast = SHAPE_ICAS.filter((i) => SHAPE_SIZE_KB[i] > 0).length;
-  ok('形状数据非空（20 个机场均有产出）', withCoast === 20, `${withCoast}`);
+  ok('形状数据非空（30 个机场均有产出）', withCoast === 30, `${withCoast}`);
   ok('内陆地景不为空（ZBAA 有建成区）', (await loadShapes('ZBAA')).URBAN.length > 0,
     `${(await loadShapes('ZBAA')).URBAN.length} 个建成区环`);
   ok('沿海地景有海岸线（VHHH）', (await loadShapes('VHHH')).COASTLINE.length > 0,
