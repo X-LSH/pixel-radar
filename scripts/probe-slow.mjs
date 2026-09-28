@@ -4,11 +4,13 @@
  *   · 超时 4s 时代：候选全被掐死 → 停留数据中断（旧版此处为模拟态）
  *   · 现行 8s 超时 + 五镜像：慢而活的候选在 8s 内返回 → 预期真实快照
  * 用法：node scripts/probe-slow.mjs [BASE]   需本地 serve 已启动（node scripts/serve.mjs）
- * 环境变量：EXPECT=snapshot|down  LATENCY_MS  WATCH_MS  BOOT_MS  CDP_PORT
+ * 环境变量：EXPECT=snapshot|down  LATENCY_MS  WATCH_MS  BOOT_MS
+ *          CDP_PORT（默认随机空闲端口）
  *          RECOVER_AFTER_READY_MS=<ms>  就绪后解除延迟（验证「中断 → 自动恢复」）
  */
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync } from 'node:fs';
+import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -17,9 +19,34 @@ const LATENCY = Number(process.env.LATENCY_MS || 5000);
 const WATCH = Number(process.env.WATCH_MS || 30000);
 const BOOT_MS = Number(process.env.BOOT_MS || 120000);
 const EXPECT = process.env.EXPECT || '';
-const PORT = Number(process.env.CDP_PORT || 9361);
+/** CDP_PORT 显式给定时固定；否则每次挑空闲随机端口 —— 固定端口会被上一次中断
+ * 残留的 Chrome 占住，后续运行会连上旧浏览器（与 e2e 曾踩过的串线同源）。 */
+const PORT = process.env.CDP_PORT
+  ? Number(process.env.CDP_PORT)
+  : await new Promise((resolvePort) => {
+    const probe = net.createServer();
+    probe.once('error', () => resolvePort(9361));
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address();
+      probe.close(() => resolvePort(port));
+    });
+  });
+/** main() 内赋值；异常收尾路径也要能回收它 */
+let chromePid = null;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** 清掉上次被中断运行残留的探针 Chrome（只按本脚本 profile 前缀精确认定） */
+function sweepStaleChrome() {
+  try {
+    if (process.platform === 'win32') {
+      const ps = `Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object { $_.CommandLine -match 'pixel-radar-probe-|pr-slow-' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`;
+      execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { stdio: 'ignore' });
+    } else {
+      execFileSync('pkill', ['-f', 'pixel-radar-probe-|pr-slow-'], { stdio: 'ignore' });
+    }
+  } catch { /* 无残留或清理失败：随机端口已兜底 */ }
+}
 
 function detectChrome() {
   const candidates = process.platform === 'win32'
@@ -37,6 +64,7 @@ function detectChrome() {
 }
 
 async function main() {
+  sweepStaleChrome();
   const PROFILE = mkdtempSync(join(tmpdir(), 'pr-slow-'));
   const CHROME = process.env.CHROME_PATH || detectChrome();
   const args = [
@@ -46,6 +74,7 @@ async function main() {
   ];
   if (/(127\.0\.0\.1|localhost)/.test(BASE)) args.push('--no-proxy-server', '--proxy-bypass-list=<-loopback>');
   const child = spawn(CHROME, args, { detached: true, stdio: 'ignore' });
+  chromePid = child.pid;
   child.on('error', (e) => console.error('[chrome spawn error]', e.message));
   child.on('exit', (c, sig) => console.error('[chrome exited]', c, sig));
   child.unref();
@@ -171,4 +200,8 @@ async function main() {
   try { spawn('taskkill', ['/t', '/f', '/pid', String(child.pid)], { stdio: 'ignore' }); } catch { /* 非 Windows 忽略 */ }
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+main().catch((e) => {
+  console.error(e);
+  if (chromePid) { try { process.kill(chromePid); } catch { /* 已退出 */ } }
+  process.exit(1);
+});

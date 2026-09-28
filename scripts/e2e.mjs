@@ -17,9 +17,10 @@
  *   CHROME_PATH=... CDP_PORT=9555 node scripts/e2e.mjs   指定浏览器 / 端口
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
+import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,10 +28,25 @@ import { fileURLToPath } from 'node:url';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SHOTS = resolve(ROOT, 'shots');
 const BASE = process.env.BASE || 'http://127.0.0.1:5173/';
-const PORT = Number(process.env.CDP_PORT || 9351);
+/** 调试端口：显式给 CDP_PORT 时固定（便于手工挂接）；否则每次挑一个空闲随机端口。
+ * 固定默认端口会被上一次「被中断」运行残留的 Chrome 占住，而 launchChrome 见端口
+ * 开着就复用 —— 断言会整体跑在旧 profile 的残留页面上（曾把首屏初始机场串成上一轮
+ * 手动切换过的 KJFK，连续两轮 42/43，且残留进程永不退出）。 */
+const PORT = process.env.CDP_PORT
+  ? Number(process.env.CDP_PORT)
+  : await new Promise((resolvePort) => {
+    const probe = net.createServer();
+    probe.once('error', () => resolvePort(9351));
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address();
+      probe.close(() => resolvePort(port));
+    });
+  });
 /** 配置目录放系统临时目录 —— 写死 C:/Users/... 会让脚本在别的机器上直接崩 */
 const PROFILE = process.env.CDP_PROFILE
   || resolve(tmpdir(), `pixel-radar-cdp-${Date.now()}`);
+/** main() 内赋值；异常收尾路径也要能回收它 */
+let chromePid = null;
 
 /** 按平台找已安装的 Chrome/Chromium，找不到再回落到平台惯例路径 */
 function detectChrome() {
@@ -72,7 +88,21 @@ const portOpen = async () => {
   try { return (await fetch(`http://127.0.0.1:${PORT}/json/version`)).ok; } catch { return false; }
 };
 
+/** 清掉上次被中断运行残留的自家 Chrome（只按本脚本 profile 前缀精确认定，
+ * 绝不碰用户浏览器）。随机端口已避免串线，这一步防止残留进程反复堆积。 */
+function sweepStaleChrome() {
+  try {
+    if (process.platform === 'win32') {
+      const ps = `Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object { $_.CommandLine -match 'pixel-radar-cdp-' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`;
+      execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', ps], { stdio: 'ignore' });
+    } else {
+      execFileSync('pkill', ['-f', 'pixel-radar-cdp-'], { stdio: 'ignore' });
+    }
+  } catch { /* 无残留或清理失败：随机端口已兜底 */ }
+}
+
 async function launchChrome() {
+  sweepStaleChrome();
   if (await portOpen()) return null;
   const args = [
     '--headless=new', '--disable-gpu', '--no-sandbox', '--disable-dev-shm-usage',
@@ -103,7 +133,7 @@ async function main() {
   await mkdir(SHOTS, { recursive: true });
   console.log(`目标：${BASE}\n`);
 
-  const chromePid = await launchChrome();
+  chromePid = await launchChrome();
 
   const list = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json();
   const page = list.find((t) => t.type === 'page');
@@ -497,5 +527,6 @@ main().catch(async (e) => {
   try {
     await writeFile(resolve(SHOTS, 'report.json'), JSON.stringify({ fatal: e.message, results }, null, 2));
   } catch { /* 忽略 */ }
+  if (chromePid) { try { process.kill(chromePid); } catch { /* 已退出 */ } }
   process.exit(2);
 });
