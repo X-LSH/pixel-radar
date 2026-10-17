@@ -1,0 +1,219 @@
+{
+  "generatedAt": 1792264515379,
+  "generatedAtIso": "2026-10-17T19:15:15.379Z",
+  "radiusNm": 50,
+  "ok": 30,
+  "fail": 0,
+  "airports": [
+    {
+      "icao": "ZBAA",
+      "count": 1,
+      "fetchedAt": 1792263709682,
+      "source": "adsb.fi",
+      "coverageGap": false
+    },
+    {
+      "icao": "ZSPD",
+      "count": 0,
+      "fetchedAt": 1792264512877,
+      "source": "adsb.fi+opensky",
+      "coverageGap": true
+    },
+    {
+      "icao": "ZGGG",
+      "count": 5,
+      "fetchedAt": 1792263729860,
+      "source": "adsb.fi",
+      "coverageGap": false
+    },
+    {
+      "icao": "ZGSZ",
+      "count": 10,
+      "fetchedAt": 1792263736410,
+      "source": "adsb.fi",
+      "coverageGap": false
+    },
+    {
+      "icao": "ZUUU",
+      "count": 0,
+      "fetchedAt": 1792264474439,
+      "source": "adsb.fi+opensky",
+      "coverageGap": true
+    },
+    {
+      "icao": "VHHH",
+      "count": 11,
+      "fetchedAt": 1792263756078,
+      "source": "adsb.fi",
+      "coverageGap": false
+    },
+    {
+      "icao": "RJAA",
+      "count": 8,
+      "fetchedAt": 1792263762551,
+      "source": "adsb.fi",
+      "coverageGap": false
+    },
+    {
+      "icao": "RJTT",
+      "count": 9,
+      "fetchedAt": 1792263769079,
+      "source": "adsb.fi",
+      "coverageGap": false
+    },
+    {
+      "icao": "RKSI",
+      "count": 21,
+      "fetchedAt": 1792263775572,
+      "source": "adsb.fi",
+      "coverageGap": false
+    },
+    {
+      "icao": "WSSS",
+      "count": 6,
+      "fetchedAt": 1792263782037,
+      "source": "adsb.fi",
+      "coverageGap": false
+    },
+    {
+      "icao": "OMDB",
+      "count": 23,
+      "fetchedAt": 1792263788511,
+      "source": "adsb.fi",
+      "coverageGap": false
+    },
+    {
+      "icao": "EGLL",
+      "count": 98,
+      "fetchedAt": 1792263795039,
+      "source": "adsb.fi",
+      "coverageGap": false
+    },
+    {
+      "icao": "LFPG",
+      "count": 40,
+      "fetchedAt": 1792263801497,
+      "source": "adsb.fi",
+      "coverageGap": false
+    },
+    {
+      "icao": "EDDF",
+      "count": 34,
+      "fetchedAt": 1792263807984,
+      "source": "adsb.fi",
+      "coverageGap": false
+    },
+    {
+      "icao": "KJFK",
+      "count": 153,
+      "fetchedAt": 1792263835142,
+      "source": "adsb.fi",
+      "coverageGap": false
+    },
+    {
+      "icao": "KLAX",
+      "count": 204,
+      "fetchedAt": 1792263841763,
+      "source": "adsb.fi",
+      "coverageGap": false
+    },
+    {
+      "icao": "KSFO",
+      "count": 179,
+      "fetchedAt": 1792263848389,
+      "source": "adsb.fi",
+      "coverageGap": false
+    },
+    {
+      "icao": "KSEA",
+      "count": 111,
+      "fetchedAt": 1792263854883,
+      "source": "adsb.fi",
+      "coverageGap": false
+    },
+    {
+      "icao": "YSSY",
+      "count": 17,
+      "fetchedAt": 1792263861351,
+      "source": "adsb.fi",
+      "coverageGap": false
+    },
+    {
+      "icao": "YMML",
+      "count": 9,
+      "fetchedAt": 1792263867843,
+      "source": "adsb.fi",
+      "coverageGap": false
+    },
+    {
+      "icao": "ZSQD",
+      "count": 0,
+      "fetchedAt": 1792264460482,
+      "source": "adsb.fi+opensky",
+      "coverageGap": true
+    },
+    {
+      "icao": "ZSHC",
+      "count": 0,
+      "fetchedAt": 1792264377975,
+      "source": "adsb.fi+opensky",
+      "coverageGap": true
+    },
+    {
+      "icao": "ZSAM",
+      "count": 3,
+      "fetchedAt": 1792264354468,
+      "source": "opensky",
+      "coverageGap": false
+    },
+    {
+      "icao": "ZHHH",
+      "count": 0,
+      "fetchedAt": 1792264309641,
+      "source": "adsb.fi+opensky",
+      "coverageGap": true
+    },
+    {
+      "icao": "ZUCK",
+      "count": 0,
+      "fetchedAt": 1792264296221,
+      "source": "adsb.fi+opensky",
+      "coverageGap": true
+    },
+    {
+      "icao": "ZPPP",
+      "count": 0,
+      "fetchedAt": 1792264257652,
+      "source": "adsb.fi+opensky",
+      "coverageGap": true
+    },
+    {
+      "icao": "ZLXY",
+      "count": 0,
+      "fetchedAt": 1792264244102,
+      "source": "adsb.fi+opensky",
+      "coverageGap": true
+    },
+    {
+      "icao": "ZSNJ",
+      "count": 1,
+      "fetchedAt": 1792264205337,
+      "source": "adsb.fi",
+      "coverageGap": false
+    },
+    {
+      "icao": "KATL",
+      "count": 87,
+      "fetchedAt": 1792264139617,
+      "source": "adsb.fi",
+      "coverageGap": false
+    },
+    {
+      "icao": "EHAM",
+      "count": 45,
+      "fetchedAt": 1792264146121,
+      "source": "adsb.fi",
+      "coverageGap": false
+    }
+  ]
+}
