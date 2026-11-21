@@ -1,0 +1,219 @@
+{
+  "generatedAt": 1795255601635,
+  "generatedAtIso": "2026-11-21T10:06:41.635Z",
+  "radiusNm": 50,
+  "ok": 30,
+  "fail": 0,
+  "airports": [
+    {
+      "icao": "ZBAA",
+      "count": 17,
+      "fetchedAt": 1795255261876,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "ZSPD",
+      "count": 0,
+      "fetchedAt": 1795255599132,
+      "source": "adsb.lol+adsb.fi+opensky",
+      "coverageGap": true
+    },
+    {
+      "icao": "ZGGG",
+      "count": 7,
+      "fetchedAt": 1795255281149,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "ZGSZ",
+      "count": 38,
+      "fetchedAt": 1795255283826,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "ZUUU",
+      "count": 0,
+      "fetchedAt": 1795255582845,
+      "source": "adsb.lol+adsb.fi+opensky",
+      "coverageGap": true
+    },
+    {
+      "icao": "VHHH",
+      "count": 41,
+      "fetchedAt": 1795255302883,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "RJAA",
+      "count": 76,
+      "fetchedAt": 1795255305571,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "RJTT",
+      "count": 74,
+      "fetchedAt": 1795255308255,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "RKSI",
+      "count": 41,
+      "fetchedAt": 1795255316378,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "WSSS",
+      "count": 10,
+      "fetchedAt": 1795255324531,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "OMDB",
+      "count": 21,
+      "fetchedAt": 1795255327200,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "EGLL",
+      "count": 151,
+      "fetchedAt": 1795255329907,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "LFPG",
+      "count": 67,
+      "fetchedAt": 1795255332602,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "EDDF",
+      "count": 70,
+      "fetchedAt": 1795255335300,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "KJFK",
+      "count": 34,
+      "fetchedAt": 1795255337968,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "KLAX",
+      "count": 19,
+      "fetchedAt": 1795255340627,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "KSFO",
+      "count": 24,
+      "fetchedAt": 1795255343284,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "KSEA",
+      "count": 14,
+      "fetchedAt": 1795255345943,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "YSSY",
+      "count": 13,
+      "fetchedAt": 1795255348603,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "YMML",
+      "count": 8,
+      "fetchedAt": 1795255356726,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "ZSQD",
+      "count": 1,
+      "fetchedAt": 1795255394225,
+      "source": "opensky",
+      "coverageGap": false
+    },
+    {
+      "icao": "ZSHC",
+      "count": 0,
+      "fetchedAt": 1795255566503,
+      "source": "adsb.lol+adsb.fi+opensky",
+      "coverageGap": true
+    },
+    {
+      "icao": "ZSAM",
+      "count": 2,
+      "fetchedAt": 1795255413565,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "ZHHH",
+      "count": 0,
+      "fetchedAt": 1795255550027,
+      "source": "adsb.lol+adsb.fi+opensky",
+      "coverageGap": true
+    },
+    {
+      "icao": "ZUCK",
+      "count": 0,
+      "fetchedAt": 1795255533511,
+      "source": "adsb.lol+adsb.fi+opensky",
+      "coverageGap": true
+    },
+    {
+      "icao": "ZPPP",
+      "count": 0,
+      "fetchedAt": 1795255517143,
+      "source": "adsb.lol+adsb.fi+opensky",
+      "coverageGap": true
+    },
+    {
+      "icao": "ZLXY",
+      "count": 25,
+      "fetchedAt": 1795255465247,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "ZSNJ",
+      "count": 6,
+      "fetchedAt": 1795255467918,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "KATL",
+      "count": 19,
+      "fetchedAt": 1795255470590,
+      "source": "adsb.lol",
+      "coverageGap": false
+    },
+    {
+      "icao": "EHAM",
+      "count": 100,
+      "fetchedAt": 1795255473289,
+      "source": "adsb.lol",
+      "coverageGap": false
+    }
+  ]
+}
